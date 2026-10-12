@@ -1,0 +1,34 @@
+[
+  {
+    "name": "car",
+    "color": "#fa3253",
+    "type": "any",
+    "attributes": []
+  },
+  {
+    "name": "pedestrian",
+    "color": "#32fa53",
+    "type": "any",
+    "attributes": []
+  },
+  {
+    "name": "drivable_area",
+    "color": "#3253fa",
+    "type": "any",
+    "attributes": []
+  },
+  {
+    "name": "image_info",
+    "color": "#000000",
+    "type": "any",
+    "attributes": [
+      {
+        "name": "weather",
+        "input_type": "select",
+        "mutable": false,
+        "values": ["clear", "overcast", "rainy", "snowy"],
+        "default_value": "clear"
+      }
+    ]
+  }
+]
