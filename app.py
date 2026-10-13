@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
-from src.parser import parse_coco_json
+from src.parser import parse_coco_json, parse_cvat_api_json
 from src.rules import QCRulesEngine
 from src.models import Frame
 
@@ -51,7 +51,7 @@ class CVATAPI:
     def __init__(self, base_url: str, token: str):
         self.base_url = base_url.rstrip("/")
         self.token = token
-        self.headers = {"Authorization": f"Token {token}"}
+        self.headers = {"Authorization": f"Bearer {token}"}
     
     def get_job_annotations(self, job_id: int) -> Dict:
         """Fetch annotations for a job in COCO format"""
@@ -70,14 +70,15 @@ class CVATAPI:
         """Create a QC issue in CVAT"""
         url = f"{self.base_url}/issues"
         issue_data = {
+            "frame": int(frame_name),
+            "position": [0.0],
             "job": job_id,
-            "frame": frame_name,
-            "comment": comment,
-            "status": "open"
+            "message": comment,
+            "resolved": False
         }
         
-        if assignee_id:
-            issue_data["assignee"] = assignee_id
+        # if assignee_id:
+        #     issue_data["assignee"] = assignee_id
         
         logger.info(f"Creating issue for job {job_id}, frame {frame_name}: {comment}")
         
@@ -86,7 +87,7 @@ class CVATAPI:
             response.raise_for_status()
             return response.json()
         except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to create issue: {e}")
+            logger.error(f"Failed to create issue. CVAT Response: {e.response.text if hasattr(e, 'response') else ''}")
             raise
     
     def update_job_status(self, job_id: int, status: str) -> Dict:
@@ -115,6 +116,19 @@ class CVATAPI:
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to get job info: {e}")
             raise
+
+    def get_job_labels(self, job_id: int) -> Dict[int, str]:
+        """Fetch labels metadata for mapping ID to Name"""
+        url = f"{self.base_url}/labels?job_id={job_id}"
+        try:
+            response = requests.get(url, headers=self.headers, timeout=30)
+            response.raise_for_status()
+            results = response.json().get("results", [])
+            # Trả về dict: { 3: "car", 4: "pedestrian" }
+            return {item["id"]: item["name"] for item in results}
+        except Exception as e: 
+            logger.error(f"Failed to fetch labels: {e}")
+            return {}
 
 
 # Initialize CVAT API client (will use token from env)
@@ -174,7 +188,7 @@ async def cvat_webhook(request: Request):
         job_id = job.get("id")
         status = job.get("status")
         job_name = job.get("name", "unknown")
-        assignee = job.get("assignee", {})
+        assignee = job.get("assignee") or {}
         assignee_id = assignee.get("id")
         
         logger.info(f"🔔 Job Update: ID={job_id} | Name='{job_name}' | Status='{status}' | Assignee={assignee_id}")
@@ -238,14 +252,17 @@ async def cvat_webhook(request: Request):
                 "action": "failed"
             }
         
-        # 4c. Parse COCO JSON
+        # 4c. Lấy Mapping Nhãn và Parse CVAT JSON
         try:
-            logger.info(f"Parsing COCO JSON...")
-            frames: List[Frame] = parse_coco_json(raw_data)
+            logger.info(f"Fetching label mapping for Job {job_id}...")
+            labels_mapping = cvat_api.get_job_labels(job_id)
+            
+            logger.info(f"Parsing CVAT API JSON Data...")
+            frames: List[Frame] = parse_cvat_api_json(raw_data, labels_mapping)
             logger.info(f"✓ Successfully parsed {len(frames)} frames")
             
         except Exception as e:
-            logger.error(f"Failed to parse COCO JSON: {e}")
+            logger.error(f"Failed to parse CVAT JSON: {e}")
             return {
                 "message": f"Failed to parse annotations: {str(e)}",
                 "job_id": job_id,
