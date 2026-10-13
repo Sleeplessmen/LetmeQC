@@ -1,5 +1,4 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import JSONResponse
 import uvicorn
 import json
 import logging
@@ -7,7 +6,6 @@ import os
 from typing import Optional, Dict, List
 from datetime import datetime
 
-# Import QC modules
 import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -77,8 +75,8 @@ class CVATAPI:
             "resolved": False
         }
         
-        # if assignee_id:
-        #     issue_data["assignee"] = assignee_id
+        if assignee_id:
+            issue_data["assignee"] = assignee_id
         
         logger.info(f"Creating issue for job {job_id}, frame {frame_name}: {comment}")
         
@@ -88,21 +86,6 @@ class CVATAPI:
             return response.json()
         except requests.exceptions.RequestException as e:
             logger.error(f"Failed to create issue. CVAT Response: {e.response.text if hasattr(e, 'response') else ''}")
-            raise
-    
-    def update_job_status(self, job_id: int, status: str) -> Dict:
-        """Update job status"""
-        url = f"{self.base_url}/jobs/{job_id}"
-        update_data = {"status": status}
-        
-        logger.info(f"Updating job {job_id} status to: {status}")
-        
-        try:
-            response = requests.patch(url, json=update_data, headers=self.headers, timeout=30)
-            response.raise_for_status()
-            return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.error(f"Failed to update job status: {e}")
             raise
     
     def get_job_info(self, job_id: int) -> Dict:
