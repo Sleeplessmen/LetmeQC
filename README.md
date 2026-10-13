@@ -4,16 +4,14 @@ A Python tool for validating and quality-checking COCO format annotation files, 
 
 ## Features
 
-- ✅ **Bounding Box Validation**
+- **Bounding Box Validation**
   - Out of bounds detection
   - Minimum size validation
   - Overlap detection (IoU-based)
-  
-- ✅ **Polygon/Segmentation Validation**
+- **Polygon/Segmentation Validation**
   - Self-intersection detection
-  - Mask out of bounding box detection
-  
-- ✅ **COCO Format Support**
+  - Mask out of bounding box dsetection
+- **COCO Format Support**
   - Parse COCO JSON annotations
   - Support for bbox, polygon, and attributes
 
@@ -49,12 +47,14 @@ LetmeQC/
 ### Installation
 
 1. **Clone the repository**
+
    ```bash
    git clone <repository-url>
    cd LetmeQC
    ```
 
 2. **Create virtual environment**
+
    ```bash
    python -m venv venv
    ```
@@ -70,6 +70,7 @@ LetmeQC/
      ```
 
 4. **Install dependencies**
+
    ```bash
    pip install -r requirements.txt
    ```
@@ -125,32 +126,32 @@ else:
 
 ### QCRulesEngine Parameters
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `min_box_area` | float | 100 | Minimum area (in pixels) for a valid bounding box |
-| `iou_threshold` | float | 0.95 | IoU threshold for detecting overlapping boxes |
+| Parameter       | Type  | Default | Description                                       |
+| --------------- | ----- | ------- | ------------------------------------------------- |
+| `min_box_area`  | float | 100     | Minimum area (in pixels) for a valid bounding box |
+| `iou_threshold` | float | 0.95    | IoU threshold for detecting overlapping boxes     |
 
 ### Error Types
 
-| Error Type | Description |
-|------------|-------------|
-| `Bbox_Out_Of_Bounds` | Bounding box extends outside image boundaries |
-| `Bbox_Too_Small` | Bounding box area is below minimum threshold |
-| `Bbox_Overlap` | Two boxes of same class have high IoU overlap |
-| `Polygon_Self_Intersect` | Polygon has self-intersecting edges |
-| `Mask_Out_Of_Box` | Polygon mask extends outside its bounding box |
-| `Polygon_Error` | General polygon geometry error |
+| Error Type               | Description                                   |
+| ------------------------ | --------------------------------------------- |
+| `Bbox_Out_Of_Bounds`     | Bounding box extends outside image boundaries |
+| `Bbox_Too_Small`         | Bounding box area is below minimum threshold  |
+| `Bbox_Overlap`           | Two boxes of same class have high IoU overlap |
+| `Polygon_Self_Intersect` | Polygon has self-intersecting edges           |
+| `Mask_Out_Of_Box`        | Polygon mask extends outside its bounding box |
+| `Polygon_Error`          | General polygon geometry error                |
 
 ## Test Cases
 
 The `data/test_cases/` directory contains sample files with intentional errors for testing:
 
-| File | Error Type | Description |
-|------|------------|-------------|
+| File                      | Error Type                     | Description                                   |
+| ------------------------- | ------------------------------ | --------------------------------------------- |
 | `test_bbox_size_oob.json` | Bbox Out of Bounds + Too Small | Box exceeds image dimensions and is too small |
-| `test_bbox_overlap.json` | Bbox Overlap | Two boxes of same class at same location |
-| `test_missing_attr.json` | Missing Attribute | Missing required `occluded` attribute |
-| `test_poly_errors.json` | Polygon Errors | Self-intersecting polygon + mask out of box |
+| `test_bbox_overlap.json`  | Bbox Overlap                   | Two boxes of same class at same location      |
+| `test_missing_attr.json`  | Missing Attribute              | Missing required `occluded` attribute         |
+| `test_poly_errors.json`   | Polygon Errors                 | Self-intersecting polygon + mask out of box   |
 
 ## Development
 
