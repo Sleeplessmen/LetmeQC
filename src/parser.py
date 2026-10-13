@@ -1,6 +1,6 @@
 import json
 from .models import Frame, Bbox, Polygon, FrameTag
-from typing import List, Dict
+from typing import List
 
 
 def parse_coco_json(json_path: str) -> List[Frame]:

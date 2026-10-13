@@ -4,7 +4,7 @@ import uvicorn
 import json
 import logging
 import os
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, List
 from datetime import datetime
 
 # Import QC modules
@@ -12,7 +12,7 @@ import sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 import requests
-from src.parser import parse_coco_json, parse_cvat_api_json
+from src.parser import parse_cvat_api_json
 from src.rules import QCRulesEngine
 from src.models import Frame
 
@@ -325,13 +325,6 @@ async def cvat_webhook(request: Request):
                     logger.info(f"✓ Created issue for frame {frame_name}")
                 except Exception as e:
                     logger.error(f"Failed to create issue for frame {frame_name}: {e}")
-            
-            # 5b. Đổi status job về 'annotation' để annotator sửa
-            try:
-                cvat_api.update_job_status(job_id, "annotation")
-                logger.info(f"✓ Job {job_id} status changed back to 'annotation'")
-            except Exception as e:
-                logger.error(f"Failed to update job status: {e}")
             
             return {
                 "message": f"QC failed - {len(errors)} errors found",
