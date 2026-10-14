@@ -68,7 +68,5 @@ venv.bak/
 # Data
 *.zip
 *.json
-!data/cvat_exports/
-!data/ground_truth/
 !data/poc_images/
-!data/test_cases/
+!data/label.json

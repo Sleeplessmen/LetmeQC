@@ -21,6 +21,14 @@ class QCRulesEngine:
         self.min_aspect_ratio = min_aspect_ratio
         self.mask_tolerance = mask_tolerance
         self.bbox_tolerance = bbox_tolerance
+        
+        # Required attributes per label (from label.json)
+        # Format: {label_name: [list_of_required_attribute_names]}
+        self.required_attributes = {
+            "car": ["occluded", "is_parked"],
+            "pedestrian": ["action"],
+            "image_info": ["weather"]
+        }
 
     def run_qc_check(self, frames: List[Frame]) -> List[Dict[str, Any]]:
         """Run QC checks on all frames and return list of errors"""
@@ -44,6 +52,7 @@ class QCRulesEngine:
         errors.extend(self._check_overlapping_bboxes(frame))
         errors.extend(self._check_self_intersecting_polygons(frame))
         errors.extend(self._check_duplicate_objects(frame))
+        errors.extend(self._check_missing_attributes(frame))  # Rule 7 - NEW
         
         # Phase 3: Advanced checks
         errors.extend(self._check_mask_out_of_bbox(frame))
@@ -245,6 +254,46 @@ class QCRulesEngine:
         iou = self._calculate_box_iou(box1, box2)
         return iou >= self.duplicate_iou_threshold and box1.attributes == box2.attributes
 
+    def _check_missing_attributes(self, frame: Frame) -> List[Dict]:
+        """Check if objects are missing required attributes (Rule 7)"""
+        errors = []
+        
+        # Get required attributes for each label
+        required_attrs = self.required_attributes
+        
+        # Check all bboxes
+        for box in frame.bboxes:
+            label = box.label
+            if label in required_attrs:
+                for attr_name in required_attrs[label]:
+                    # Check if attribute exists and has non-empty value
+                    if attr_name not in box.attributes or not box.attributes[attr_name]:
+                        position = [box.xtl, box.ytl, box.xbr, box.ybr]
+                        errors.append(generate_error_payload(
+                            frame.name, box.id, "Missing_Required_Attributes",
+                            position,
+                            label=label,
+                            missing_attribute=attr_name,
+                            required_attributes=", ".join(required_attrs[label])
+                        ))
+        
+        # Check all polygons
+        for poly in frame.polygons:
+            label = poly.label
+            if label in required_attrs:
+                for attr_name in required_attrs[label]:
+                    if attr_name not in poly.attributes or not poly.attributes[attr_name]:
+                        position = list(get_bbox_from_points(poly.points))
+                        errors.append(generate_error_payload(
+                            frame.name, poly.id, "Missing_Required_Attributes",
+                            position,
+                            label=label,
+                            missing_attribute=attr_name,
+                            required_attributes=", ".join(required_attrs[label])
+                        ))
+        
+        return errors
+
     # ==================== PHASE 3: ADVANCED CHECKS ====================
 
     def _check_mask_out_of_bbox(self, frame: Frame) -> List[Dict]:
@@ -279,11 +328,55 @@ class QCRulesEngine:
         return errors
 
     def _find_matching_bbox(self, frame: Frame, poly: Polygon) -> Optional[Bbox]:
-        """Find bbox with same ID as polygon"""
+        """Find bbox matching polygon using group_id or spatial mapping.
+        
+        In CVAT, a Bbox and a Polygon have different IDs. 
+        Use group_id (preferred) or spatial mapping (same label + highest IoU).
+        """
+        # Try method 1: Match by group_id from attributes
+        poly_group_id = poly.attributes.get('group_id')
+        if poly_group_id:
+            for b in frame.bboxes:
+                if b.attributes.get('group_id') == poly_group_id:
+                    return b
+        
+        # Try method 2: Spatial mapping - find bbox with same label and highest IoU
+        poly_bbox = get_bbox_from_points(poly.points)
+        best_match = None
+        best_iou = 0.0
+        
         for b in frame.bboxes:
-            if b.id == poly.id:
-                return b
-        return None
+            if b.label != poly.label:
+                continue
+            
+            bbox_tuple = (b.xtl, b.ytl, b.xbr, b.ybr)
+            poly_tuple = (poly_bbox[0], poly_bbox[1], poly_bbox[2], poly_bbox[3])
+            iou = calculate_iou(bbox_tuple, poly_tuple)
+            
+            # Also check intersection over polygon area
+            try:
+                shapely_poly = ShapelyPoly(poly.points)
+                poly_area = shapely_poly.area
+                if poly_area > 0:
+                    # Calculate intersection area
+                    inter_x1 = max(bbox_tuple[0], poly_tuple[0])
+                    inter_y1 = max(bbox_tuple[1], poly_tuple[1])
+                    inter_x2 = min(bbox_tuple[2], poly_tuple[2])
+                    inter_y2 = min(bbox_tuple[3], poly_tuple[3])
+                    
+                    if inter_x2 > inter_x1 and inter_y2 > inter_y1:
+                        inter_area = (inter_x2 - inter_x1) * (inter_y2 - inter_y1)
+                        # Use intersection over polygon area ratio
+                        spatial_match_score = inter_area / poly_area
+                        if spatial_match_score > best_iou:
+                            best_iou = spatial_match_score
+                            best_match = b
+            except Exception:
+                if iou > best_iou:
+                    best_iou = iou
+                    best_match = b
+        
+        return best_match
 
     def _is_mask_out_of_bbox(self, min_x: float, min_y: float, max_x: float, max_y: float,
                           box: Bbox) -> bool:
@@ -322,7 +415,10 @@ class QCRulesEngine:
         return errors
 
     def _get_label_hierarchy(self) -> Dict[str, List[str]]:
-        """Get label hierarchy definitions"""
+        """Get label hierarchy definitions.
+        
+        Based on label.json: pedestrian/person cannot be inside car/truck/bus
+        """
         return {
             "pedestrian": ["car", "truck", "bus"],
             "person": ["car", "truck", "bus"]
@@ -332,24 +428,39 @@ class QCRulesEngine:
                                          parent_labels: List[str]) -> List[Dict]:
         """Check if child label objects are inside parent label objects"""
         errors = []
+        
+        # Safely get child boxes (handle None/empty)
         child_boxes = [b for b in frame.bboxes if b.label == child_label]
         
         for child in child_boxes:
-            errors.extend(self._check_child_against_parents(
-                frame, child, child_label, parent_labels
-            ))
+            if child is None:
+                continue
+            try:
+                errors.extend(self._check_child_against_parents(
+                    frame, child, child_label, parent_labels
+                ))
+            except Exception:
+                # Skip any errors and continue with other boxes
+                continue
         return errors
 
     def _check_child_against_parents(self, frame: Frame, child: Bbox, child_label: str,
                                      parent_labels: List[str]) -> List[Dict]:
         """Check if a child box is inside any parent box"""
         errors = []
+        
+        if child is None:
+            return errors
+            
         child_box = (child.xtl, child.ytl, child.xbr, child.ybr)
         
         for parent_label in parent_labels:
+            # Safely filter parent boxes
             parent_boxes = [b for b in frame.bboxes
-                          if b.label == parent_label and b.id != child.id]
+                          if b is not None and b.label == parent_label and b.id != child.id]
             for parent in parent_boxes:
+                if parent is None:
+                    continue
                 parent_box = (parent.xtl, parent.ytl, parent.xbr, parent.ybr)
                 if self._is_child_in_parent(child_box, parent_box):
                     errors.append(generate_error_payload(
@@ -362,4 +473,4 @@ class QCRulesEngine:
 
     def _is_child_in_parent(self, child_box: Tuple, parent_box: Tuple) -> bool:
         """Check if child box is inside parent box with high IoU"""
-        return calculate_iou(child_box, parent_box) > 0.95
+        return calculate_iou(child_box, parent_box) > 0.5

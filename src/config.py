@@ -8,7 +8,7 @@ class QCConfig:
     """Configuration for Quality Control rules"""
     min_box_area: float = 100.0
     min_polygon_points: int = 3
-    iou_threshold: float = 0.95
+    iou_threshold: float = 0.7
     duplicate_iou_threshold: float = 0.98
     max_aspect_ratio: float = 10.0
     min_aspect_ratio: float = 0.1
@@ -35,7 +35,7 @@ class CVATAPIConfig:
     """Configuration for CVAT API client"""
     base_url: str
     token: str
-    org_slug: str = None
+    org_slug: str
     timeout: int = 30
     
     @classmethod

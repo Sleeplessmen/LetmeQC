@@ -166,11 +166,18 @@ Phase 1: Critical (Triển khai ngay) ──> Phase 2: Geometry & Logic ──> 
 
 **Áp dụng**: Khi gán nhãn Instance Segmentation (vừa có Bbox vừa có Polygon/Mask cho 1 object).
 
-#### Logic
-Dùng thư viện `Shapely`:
-1. Tạo 1 `Polygon` từ các điểm của mask
-2. Lấy `bounds` của nó (khung chữ nhật nhỏ nhất bao quanh mask: `min_x, min_y, max_x, max_y`)
-3. So sánh `bounds` với tọa độ của Bbox tương ứng
+#### Logic (Đã sửa đổi)
+Trong CVAT, một Bbox và một Polygon độc lập sẽ có 2 `id` khác nhau. Để ánh xạ (map) đúng Polygon vào Bbox của nó, sử dụng một trong hai cách:
+1. **Dựa vào `group_id` (Ưu tiên):** Bbox và Polygon được annotator group lại với nhau (có chung thuộc tính `group`).
+2. **Dựa vào Không gian (Spatial Mapping):** Nếu không có `group`, tìm Bbox có *cùng label* và chứa trọn (hoặc chứa phần lớn) Polygon đó (IoU hoặc Intersection over Polygon Area cao nhất).
+
+**Không sử dụng so sánh `bbox.id == poly.id`.**
+
+
+Các bước tiếp theo giữ nguyên:
+1. Tạo 1 `Polygon` từ các điểm của mask bằng `Shapely`.
+2. Lấy `bounds` của nó (`min_x, min_y, max_x, max_y`).
+3. So sánh `bounds` này với tọa độ của Bbox đã map thành công.
 
 #### Code mẫu
 
@@ -390,6 +397,20 @@ def has_extreme_aspect_ratio(bbox_obj, min_ratio=0.1, max_ratio=10.0):
 
 #### Position cho Issue
 Sử dụng tọa độ của chính Bbox gây lỗi.
+
+---
+
+### I. Missing Required Attributes (`missing_attributes`)
+
+**Mục đích**: Đảm bảo Annotator không bỏ sót việc điền các trường metadata (attributes) quan trọng cho object.
+
+#### Logic
+1. Duyệt qua tất cả các object (bbox, polygon).
+2. So sánh danh sách attributes thực tế của object với danh sách attributes bắt buộc (được định nghĩa trước trong code hoặc lấy từ `label.json`).
+3. Nếu object bị thiếu một key bắt buộc, hoặc value đang ở trạng thái rỗng/chưa chọn (tùy định nghĩa), hệ thống sẽ báo lỗi.
+
+#### Position cho Issue
+Sử dụng tọa độ bounding box của chính object bị thiếu thuộc tính.
 
 ---
 
