@@ -279,13 +279,37 @@ def _run_qc(frames: List[Frame]) -> List[Dict]:
 
 
 def _process_failure(job_id: int, job_name: str, errors: List[Dict],
-                      assignee_id: Optional[int], raw_data: Dict, frames: List[Frame]) -> Dict:
+                      assignee_id: Optional[int], raw_data: Dict, frames: List[Frame],
+                      job_info: Optional[Dict] = None) -> Dict:
     """Process QC failure - create issues and update job status"""
     logger.warning("QC FAILED: %s errors found", len(errors))
     
     report = QCReport(job_id=job_id, job_name=job_name)
+    
+    # Add job information from API
+    if job_info:
+        report.project_id = job_info.get('project', {}).get('id')
+        report.project_name = job_info.get('project', {}).get('name')
+        report.assignee_id = assignee_id
+        report.assignee_name = job_info.get('assignee', {}).get('username') if job_info.get('assignee') else None
+        report.job_created_date = job_info.get('created')
+        report.job_updated_date = job_info.get('updated')
+        report.job_stage = job_info.get('stage')
+        report.job_state = job_info.get('state')
+    
+    # Add annotation statistics from raw_data
+    if raw_data:
+        meta = raw_data.get('meta', {})
+        size = meta.get('size', {})
+        report.image_width = size.get('width')
+        report.image_height = size.get('height')
+        report.total_shapes = len(raw_data.get('shapes', []))
+        report.total_tracks = len(raw_data.get('tracks', []))
+        report.total_tags = len(raw_data.get('tags', []))
+        report.frame_count = len(meta.get('frames', []))
+    
     report.total_frames = len(frames)
-    report.total_annotations = len(raw_data.get('shapes', []))
+    report.total_annotations = len(raw_data.get('shapes', [])) + len(raw_data.get('tracks', []))
     
     for error in errors:
         report.add_error(error.get("Error_Type", "UNKNOWN"), error.get("Message", ""))
@@ -339,13 +363,36 @@ def _process_failure(job_id: int, job_name: str, errors: List[Dict],
 
 
 def _process_success(job_id: int, job_name: str, frames: List[Frame],
-                        assignee_id: Optional[int], raw_data: Dict) -> Dict:
+                        assignee_id: Optional[int], raw_data: Dict, job_info: Optional[Dict] = None) -> Dict:
     """Process QC success - update job status"""
     logger.info("QC PASSED: No errors found in job %s", job_id)
     
     report = QCReport(job_id=job_id, job_name=job_name)
+    
+    # Add job information from API
+    if job_info:
+        report.project_id = job_info.get('project', {}).get('id')
+        report.project_name = job_info.get('project', {}).get('name')
+        report.assignee_id = assignee_id
+        report.assignee_name = job_info.get('assignee', {}).get('username') if job_info.get('assignee') else None
+        report.job_created_date = job_info.get('created')
+        report.job_updated_date = job_info.get('updated')
+        report.job_stage = job_info.get('stage')
+        report.job_state = job_info.get('state')
+    
+    # Add annotation statistics from raw_data
+    if raw_data:
+        meta = raw_data.get('meta', {})
+        size = meta.get('size', {})
+        report.image_width = size.get('width')
+        report.image_height = size.get('height')
+        report.total_shapes = len(raw_data.get('shapes', []))
+        report.total_tracks = len(raw_data.get('tracks', []))
+        report.total_tags = len(raw_data.get('tags', []))
+        report.frame_count = len(meta.get('frames', []))
+    
     report.total_frames = len(frames)
-    report.total_annotations = len(raw_data.get('shapes', []))
+    report.total_annotations = len(raw_data.get('shapes', [])) + len(raw_data.get('tracks', []))
     report.status = "passed"
     
     try:
@@ -423,7 +470,7 @@ async def cvat_webhook(request: Request):
                 detail="CVAT API not configured. Please set CVAT_TOKEN environment variable."
             )
         
-        _, raw_data, frames, fetch_error = _fetch_data(job_id)
+        job_info, raw_data, frames, fetch_error = _fetch_data(job_id)
         
         if fetch_error:
             return fetch_error
@@ -431,9 +478,9 @@ async def cvat_webhook(request: Request):
         errors = _run_qc(frames)
         
         if errors:
-            return _process_failure(job_id, job_name, errors, assignee_id, raw_data, frames)
+            return _process_failure(job_id, job_name, errors, assignee_id, raw_data, frames, job_info)
         else:
-            return _process_success(job_id, job_name, frames, assignee_id, raw_data)
+            return _process_success(job_id, job_name, frames, assignee_id, raw_data, job_info)
             
     except json.JSONDecodeError:
         logger.exception("Invalid JSON payload")
