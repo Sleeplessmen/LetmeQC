@@ -33,6 +33,7 @@ CVAT_TOKEN = os.getenv("CVAT_TOKEN", "")
 WEBHOOK_SECRET = os.getenv("WEBHOOK_SECRET", None)
 SERVER_HOST = os.getenv("SERVER_HOST", "0.0.0.0")
 SERVER_PORT = int(os.getenv("SERVER_PORT", "8000"))
+UPDATE_JOB_STATUS_ERROR = "Failed to update job status for job %s"
 
 app = FastAPI(
     title="LetmeQC - CVAT Webhook Server",
@@ -45,6 +46,8 @@ app = FastAPI(
 
 class CVATAPI:
     """Helper class for CVAT API interactions with X-Organization header support"""
+    
+    JOBS_PATH = "/jobs/"
     
     def __init__(self, base_url: str, token: str, org_slug: str = None):
         self.base_url = base_url.rstrip("/")
@@ -64,14 +67,14 @@ class CVATAPI:
     
     def get_job_annotations(self, job_id: int) -> Dict:
         """Fetch annotations for a job"""
-        url = self.base_url + "/jobs/" + str(job_id) + "/annotations"
+        url = self.base_url + self.JOBS_PATH + str(job_id) + "/annotations"
         logger.info("Fetching annotations from: %s", url)
         
         try:
             response = requests.get(url, headers=self._get_headers(), timeout=self.timeout)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             logger.exception("Failed to fetch annotations for job %s", job_id)
             raise
     
@@ -105,7 +108,7 @@ class CVATAPI:
     def update_job_status(self, job_id: int, stage: str, state: str,
                           assignee_id: Optional[int] = None) -> Dict:
         """Update job status via PATCH"""
-        url = self.base_url + "/jobs/" + str(job_id)
+        url = self.base_url + self.JOBS_PATH + str(job_id)
         payload = {"stage": stage, "state": state}
         
         if assignee_id:
@@ -116,19 +119,19 @@ class CVATAPI:
                                      headers=self._get_headers(), timeout=self.timeout)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
-            logger.exception("Failed to update job status for job %s", job_id)
+        except requests.exceptions.RequestException:
+            logger.exception(UPDATE_JOB_STATUS_ERROR, job_id)
             raise
     
     def get_job_info(self, job_id: int) -> Dict:
         """Get job information"""
-        url = self.base_url + "/jobs/" + str(job_id)
+        url = self.base_url + self.JOBS_PATH + str(job_id)
         
         try:
             response = requests.get(url, headers=self._get_headers(), timeout=self.timeout)
             response.raise_for_status()
             return response.json()
-        except requests.exceptions.RequestException as e:
+        except requests.exceptions.RequestException:
             logger.exception("Failed to get job info for job %s", job_id)
             raise
 
@@ -140,7 +143,7 @@ class CVATAPI:
             response.raise_for_status()
             results = response.json().get("results", [])
             return {item["id"]: item["name"] for item in results}
-        except Exception as e:
+        except Exception:
             logger.exception("Failed to fetch labels for job %s", job_id)
             return {}
 
@@ -270,7 +273,7 @@ def _run_qc(frames: List[Frame]) -> List[Dict]:
         logger.info("QC Result: %s errors found", len(errors))
         return errors
         
-    except Exception as e:
+    except Exception:
         logger.exception("QC check failed")
         raise
 
@@ -305,7 +308,7 @@ def _process_failure(job_id: int, job_name: str, errors: List[Dict],
             created_issues.append(issue)
             report.issues_created += 1
             logger.info("Created issue for frame %s", frame_name)
-        except Exception as e:
+        except Exception:
             report.failed_issue_creations += 1
             logger.exception("Failed to create issue for frame %s", frame_name)
     
@@ -318,8 +321,8 @@ def _process_failure(job_id: int, job_name: str, errors: List[Dict],
         )
         report.job_status_updated = "rejected"
         logger.info("Job %s status updated to rejected", job_id)
-    except Exception as e:
-        logger.exception("Failed to update job status for job %s", job_id)
+    except Exception:
+        logger.exception(UPDATE_JOB_STATUS_ERROR, job_id)
     
     report_path = report.save()
     
@@ -354,8 +357,8 @@ def _process_success(job_id: int, job_name: str, frames: List[Frame],
         )
         report.job_status_updated = "validation"
         logger.info("Job %s status confirmed as validation", job_id)
-    except Exception as e:
-        logger.exception("Failed to update job status for job %s", job_id)
+    except Exception:
+        logger.exception(UPDATE_JOB_STATUS_ERROR, job_id)
     
     report_path = report.save()
     
@@ -420,7 +423,7 @@ async def cvat_webhook(request: Request):
                 detail="CVAT API not configured. Please set CVAT_TOKEN environment variable."
             )
         
-        job_info, raw_data, frames, fetch_error = _fetch_data(job_id)
+        _, raw_data, frames, fetch_error = _fetch_data(job_id)
         
         if fetch_error:
             return fetch_error
@@ -432,7 +435,7 @@ async def cvat_webhook(request: Request):
         else:
             return _process_success(job_id, job_name, frames, assignee_id, raw_data)
             
-    except json.JSONDecodeError as e:
+    except json.JSONDecodeError:
         logger.exception("Invalid JSON payload")
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
