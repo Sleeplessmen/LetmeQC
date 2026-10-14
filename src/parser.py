@@ -8,14 +8,21 @@ def parse_cvat_api_json(raw_data: dict, labels_mapping: Dict[int, str]) -> List[
     labels_mapping: Dictionary map từ label_id (int) -> label_name (str)
     """
     frames_dict = {}
+    default_width, default_height = 1280, 720
+    
+    # Lấy kích thước frame từ metadata nếu có
+    if 'meta' in raw_data and 'size' in raw_data.get('meta', {}):
+        meta = raw_data['meta']['size']
+        default_width = int(meta.get('width', default_width))
+        default_height = int(meta.get('height', default_height))
     
     # Hàm hỗ trợ khởi tạo Frame nếu chưa tồn tại
     def get_or_create_frame(frame_idx: int):
         if frame_idx not in frames_dict:
             frames_dict[frame_idx] = Frame(
                 frame_id=frame_idx,
-                width=1280,  # Lưu ý: Cần kích thước thật nếu rules OOB của bạn chặt
-                height=720,
+                width=default_width,
+                height=default_height,
                 name=str(frame_idx) # Đặt name chính là ID để lúc tạo Issue ko bị lỗi
             )
         return frames_dict[frame_idx]
@@ -45,6 +52,14 @@ def parse_cvat_api_json(raw_data: dict, labels_mapping: Dict[int, str]) -> List[
             ))
             
         elif shape_type == 'polygon' and len(points) >= 6:
+            points_list = [(points[i], points[i+1]) for i in range(0, len(points), 2)]
+            frame_obj.polygons.append(Polygon(
+                id=shape.get('id'),
+                label=label_name,
+                points=points_list,
+                attributes=attrs
+            ))
+        elif shape_type == 'polyline':
             points_list = [(points[i], points[i+1]) for i in range(0, len(points), 2)]
             frame_obj.polygons.append(Polygon(
                 id=shape.get('id'),
