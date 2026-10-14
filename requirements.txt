@@ -1,12 +1,27 @@
-# Core dependencies
-shapely>=2.0.0
-fastapi>=0.104.0
-uvicorn>=0.24.0
-requests>=2.31.0
-python-dotenv>=1.0.0
+# =============================================================================
+# LetmeQC - Production Requirements
+# =============================================================================
+# Core dependencies for production deployment
 
-# Development dependencies (optional)
-pytest>=7.0.0
-black>=24.0.0
-flake8>=6.0.0
-mypy>=1.0.0
+# Web framework
+fastapi==0.109.1
+uvicorn[standard]==0.27.0
+
+# HTTP client
+requests==2.31.0
+
+# Environment variables
+python-dotenv==1.0.0
+
+# Data validation and settings
+pydantic==2.5.3
+
+# Logging
+# (included in standard library)
+
+# Type hints
+typing-extensions==4.10.0
+
+# =============================================================================
+# Note: For development dependencies, see requirements-dev.txt
+# =============================================================================
