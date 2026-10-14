@@ -6,7 +6,7 @@ from dataclasses import dataclass
 @dataclass
 class ErrorTemplate:
     """Template for error messages with severity and suggestion"""
-    severity: str  # high, medium, low
+    severity: str
     message: str
     suggestion: str
 

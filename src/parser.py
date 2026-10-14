@@ -51,15 +51,7 @@ def parse_cvat_api_json(raw_data: dict, labels_mapping: Dict[int, str]) -> List[
                 attributes=attrs
             ))
             
-        elif shape_type == 'polygon' and len(points) >= 6:
-            points_list = [(points[i], points[i+1]) for i in range(0, len(points), 2)]
-            frame_obj.polygons.append(Polygon(
-                id=shape.get('id'),
-                label=label_name,
-                points=points_list,
-                attributes=attrs
-            ))
-        elif shape_type == 'polyline':
+        elif shape_type in ('polygon', 'polyline') and len(points) >= 6:
             points_list = [(points[i], points[i+1]) for i in range(0, len(points), 2)]
             frame_obj.polygons.append(Polygon(
                 id=shape.get('id'),

@@ -65,11 +65,7 @@ class QCRulesEngine:
                 box.ybr > frame.height + self.bbox_tolerance
             )
             if is_out:
-                position = clamp_to_image(
-                    (box.xtl, box.ytl, box.xbr, box.ybr), 
-                    frame.width, 
-                    frame.height
-                )
+                position = self._clamp_bbox_to_frame(box, frame)
                 errors.append(generate_error_payload(
                     frame.name, box.id, "Bbox_Out_Of_Bounds", list(position),
                     img_w=frame.width, img_h=frame.height, label=box.label,
@@ -77,16 +73,23 @@ class QCRulesEngine:
                 ))
         return errors
 
+    def _clamp_bbox_to_frame(self, box: Bbox, frame: Frame) -> Tuple:
+        """Clamp bbox coordinates to frame boundaries"""
+        return clamp_to_image(
+            (box.xtl, box.ytl, box.xbr, box.ybr),
+            frame.width,
+            frame.height
+        )
+
     def _check_bbox_too_small(self, frame: Frame) -> List[Dict]:
         """Check if bounding boxes are smaller than minimum allowed area"""
         errors = []
         for box in frame.bboxes:
             area = (box.xbr - box.xtl) * (box.ybr - box.ytl)
             if area < self.min_box_area:
-                errors.append(generate_error_payload(
-                    frame.name, box.id, "Bbox_Too_Small", 
-                    [box.xtl, box.ytl, box.xbr, box.ybr],
-                    area=area, min_area=self.min_box_area, label=box.label
+                errors.append(self._create_bbox_error(
+                    frame, box, "Bbox_Too_Small",
+                    area=area, min_area=self.min_box_area
                 ))
         return errors
 
@@ -98,8 +101,8 @@ class QCRulesEngine:
                 position = get_bbox_from_points(poly.points)
                 errors.append(generate_error_payload(
                     frame.name, poly.id, "Polygon_Point_Count", list(position),
-                    point_count=len(poly.points), 
-                    min_points=self.min_polygon_points, 
+                    point_count=len(poly.points),
+                    min_points=self.min_polygon_points,
                     label=poly.label
                 ))
         return errors
@@ -109,41 +112,74 @@ class QCRulesEngine:
     def _check_overlapping_bboxes(self, frame: Frame) -> List[Dict]:
         """Check for overlapping bounding boxes of the same class"""
         errors = []
-        label_groups = {}
+        label_groups = self._group_bboxes_by_label(frame)
         
-        # Group bboxes by label
-        for box in frame.bboxes:
-            label_groups.setdefault(box.label, []).append(box)
-        
-        # Check overlaps within each label group
         for label, group in label_groups.items():
             if len(group) < 2:
                 continue
-            
-            for i in range(len(group)):
-                for j in range(i + 1, len(group)):
-                    box1, box2 = group[i], group[j]
-                    iou = calculate_iou(
-                        (box1.xtl, box1.ytl, box1.xbr, box1.ybr),
-                        (box2.xtl, box2.ytl, box2.xbr, box2.ybr)
-                    )
-                    if iou > self.iou_threshold:
-                        intersection = calculate_intersection_box(
-                            (box1.xtl, box1.ytl, box1.xbr, box1.ybr),
-                            (box2.xtl, box2.ytl, box2.xbr, box2.ybr)
-                        )
-                        position = list(intersection) if intersection else [box2.xtl, box2.ytl, box2.xbr, box2.ybr]
-                        errors.append(generate_error_payload(
-                            frame.name, 
-                            f"{box1.id} & {box2.id}", 
-                            "Bbox_Overlap", 
-                            position,
-                            count=2, 
-                            label=label, 
-                            obj_ids=f"{box1.id} & {box2.id}", 
-                            iou=iou
-                        ))
+            errors.extend(self._check_group_overlaps(frame, label, group))
+        
         return errors
+
+    def _group_bboxes_by_label(self, frame: Frame) -> Dict[str, List[Bbox]]:
+        """Group bboxes by their label"""
+        label_groups = {}
+        for box in frame.bboxes:
+            label_groups.setdefault(box.label, []).append(box)
+        return label_groups
+
+    def _check_group_overlaps(self, frame: Frame, label: str, group: List[Bbox]) -> List[Dict]:
+        """Check for overlaps within a group of bboxes with same label"""
+        errors = []
+        for i in range(len(group)):
+            for j in range(i + 1, len(group)):
+                box1, box2 = group[i], group[j]
+                if self._boxes_overlap(box1, box2):
+                    position = self._get_overlap_position(box1, box2)
+                    errors.append(generate_error_payload(
+                        frame.name,
+                        self._format_obj_ids(box1.id, box2.id),
+                        "Bbox_Overlap",
+                        position,
+                        count=2,
+                        label=label,
+                        obj_ids=self._format_obj_ids(box1.id, box2.id),
+                        iou=self._calculate_box_iou(box1, box2)
+                    ))
+        return errors
+
+    def _boxes_overlap(self, box1: Bbox, box2: Bbox) -> bool:
+        """Check if two boxes overlap above threshold"""
+        return self._calculate_box_iou(box1, box2) > self.iou_threshold
+
+    def _get_overlap_position(self, box1: Bbox, box2: Bbox) -> List[float]:
+        """Get position of overlap between two boxes"""
+        intersection = calculate_intersection_box(
+            (box1.xtl, box1.ytl, box1.xbr, box1.ybr),
+            (box2.xtl, box2.ytl, box2.xbr, box2.ybr)
+        )
+        if intersection:
+            return list(intersection)
+        return [box2.xtl, box2.ytl, box2.xbr, box2.ybr]
+
+    def _calculate_box_iou(self, box1: Bbox, box2: Bbox) -> float:
+        """Calculate IoU between two boxes"""
+        return calculate_iou(
+            (box1.xtl, box1.ytl, box1.xbr, box1.ybr),
+            (box2.xtl, box2.ytl, box2.xbr, box2.ybr)
+        )
+
+    def _format_obj_ids(self, id1: Any, id2: Any) -> str:
+        """Format object IDs for error message"""
+        return f"{id1} & {id2}"
+
+    def _create_bbox_error(self, frame: Frame, box: Bbox, error_type: str, **kwargs) -> Dict:
+        """Create error payload for bbox errors"""
+        position = [box.xtl, box.ytl, box.xbr, box.ybr]
+        kwargs['label'] = box.label
+        return generate_error_payload(
+            frame.name, box.id, error_type, position, **kwargs
+        )
 
     def _check_self_intersecting_polygons(self, frame: Frame) -> List[Dict]:
         """Check for self-intersecting polygons"""
@@ -151,55 +187,63 @@ class QCRulesEngine:
         for poly in frame.polygons:
             if len(poly.points) < 3:
                 continue
-            try:
-                shapely_poly = ShapelyPoly(poly.points)
-                if not shapely_poly.is_valid:
-                    position = get_bbox_from_points(poly.points)
-                    errors.append(generate_error_payload(
-                        frame.name, poly.id, "Polygon_Self_Intersect", list(position), 
-                        label=poly.label
-                    ))
-            except Exception:
-                continue
+            errors.extend(self._check_single_polygon(frame, poly))
+        return errors
+
+    def _check_single_polygon(self, frame: Frame, poly: Polygon) -> List[Dict]:
+        """Check a single polygon for self-intersection"""
+        errors = []
+        try:
+            shapely_poly = ShapelyPoly(poly.points)
+            if not shapely_poly.is_valid:
+                position = get_bbox_from_points(poly.points)
+                errors.append(generate_error_payload(
+                    frame.name, poly.id, "Polygon_Self_Intersect", list(position),
+                    label=poly.label
+                ))
+        except Exception:
+            pass
         return errors
 
     def _check_duplicate_objects(self, frame: Frame) -> List[Dict]:
         """Check for duplicate objects with same label and attributes"""
         errors = []
-        label_groups = {}
+        label_groups = self._group_bboxes_by_label(frame)
         
-        # Group bboxes by label
-        for box in frame.bboxes:
-            label_groups.setdefault(box.label, []).append(box)
-        
-        # Check for duplicates within each label group
         for label, group in label_groups.items():
             if len(group) < 2:
                 continue
-            
-            checked = set()
-            for i in range(len(group)):
-                if i in checked:
-                    continue
-                for j in range(i + 1, len(group)):
-                    box1, box2 = group[i], group[j]
-                    iou = calculate_iou(
-                        (box1.xtl, box1.ytl, box1.xbr, box1.ybr),
-                        (box2.xtl, box2.ytl, box2.xbr, box2.ybr)
-                    )
-                    # Check if boxes have same attributes and high IoU
-                    if iou >= self.duplicate_iou_threshold and box1.attributes == box2.attributes:
-                        errors.append(generate_error_payload(
-                            frame.name, 
-                            f"{box1.id} & {box2.id}", 
-                            "Duplicate_Objects",
-                            [box2.xtl, box2.ytl, box2.xbr, box2.ybr],
-                            obj_ids=f"{box1.id} & {box2.id}", 
-                            label=label, 
-                            iou=iou
-                        ))
-                        checked.add(j)
+            errors.extend(self._check_group_duplicates(frame, label, group))
+        
         return errors
+
+    def _check_group_duplicates(self, frame: Frame, label: str, group: List[Bbox]) -> List[Dict]:
+        """Check for duplicates within a group of bboxes"""
+        errors = []
+        checked = set()
+        
+        for i in range(len(group)):
+            if i in checked:
+                continue
+            for j in range(i + 1, len(group)):
+                box1, box2 = group[i], group[j]
+                if self._are_duplicates(box1, box2):
+                    errors.append(generate_error_payload(
+                        frame.name,
+                        self._format_obj_ids(box1.id, box2.id),
+                        "Duplicate_Objects",
+                        [box2.xtl, box2.ytl, box2.xbr, box2.ybr],
+                        obj_ids=self._format_obj_ids(box1.id, box2.id),
+                        label=label,
+                        iou=self._calculate_box_iou(box1, box2)
+                    ))
+                    checked.add(j)
+        return errors
+
+    def _are_duplicates(self, box1: Bbox, box2: Bbox) -> bool:
+        """Check if two boxes are duplicates"""
+        iou = self._calculate_box_iou(box1, box2)
+        return iou >= self.duplicate_iou_threshold and box1.attributes == box2.attributes
 
     # ==================== PHASE 3: ADVANCED CHECKS ====================
 
@@ -209,73 +253,113 @@ class QCRulesEngine:
         for poly in frame.polygons:
             if len(poly.points) < 3:
                 continue
-            
-            # Find matching bbox with same ID
-            matching_box = next((b for b in frame.bboxes if b.id == poly.id), None)
-            if not matching_box:
-                continue
-            
-            try:
-                shapely_poly = ShapelyPoly(poly.points)
-                min_x, min_y, max_x, max_y = shapely_poly.bounds
-                
-                is_out = (
-                    min_x < matching_box.xtl - self.mask_tolerance or
-                    min_y < matching_box.ytl - self.mask_tolerance or
-                    max_x > matching_box.xbr + self.mask_tolerance or
-                    max_y > matching_box.ybr + self.mask_tolerance
-                )
-                
-                if is_out:
-                    errors.append(generate_error_payload(
-                        frame.name, poly.id, "Mask_Out_Of_Box", 
-                        [min_x, min_y, max_x, max_y],
-                        label=poly.label, 
-                        tolerance=self.mask_tolerance
-                    ))
-            except Exception:
-                continue
+            errors.extend(self._check_single_mask(frame, poly))
         return errors
+
+    def _check_single_mask(self, frame: Frame, poly: Polygon) -> List[Dict]:
+        """Check a single polygon mask against its bbox"""
+        errors = []
+        matching_box = self._find_matching_bbox(frame, poly)
+        if not matching_box:
+            return errors
+        
+        try:
+            shapely_poly = ShapelyPoly(poly.points)
+            min_x, min_y, max_x, max_y = shapely_poly.bounds
+            
+            if self._is_mask_out_of_bbox(min_x, min_y, max_x, max_y, matching_box):
+                errors.append(generate_error_payload(
+                    frame.name, poly.id, "Mask_Out_Of_Box",
+                    [min_x, min_y, max_x, max_y],
+                    label=poly.label,
+                    tolerance=self.mask_tolerance
+                ))
+        except Exception:
+            pass
+        return errors
+
+    def _find_matching_bbox(self, frame: Frame, poly: Polygon) -> Optional[Bbox]:
+        """Find bbox with same ID as polygon"""
+        for b in frame.bboxes:
+            if b.id == poly.id:
+                return b
+        return None
+
+    def _is_mask_out_of_bbox(self, min_x: float, min_y: float, max_x: float, max_y: float,
+                          box: Bbox) -> bool:
+        """Check if mask bounds are outside bbox boundaries"""
+        return (
+            min_x < box.xtl - self.mask_tolerance or
+            min_y < box.ytl - self.mask_tolerance or
+            max_x > box.xbr + self.mask_tolerance or
+            max_y > box.ybr + self.mask_tolerance
+        )
 
     def _check_extreme_aspect_ratio(self, frame: Frame) -> List[Dict]:
         """Check for bounding boxes with extreme aspect ratios"""
         errors = []
         for box in frame.bboxes:
             ratio = calculate_aspect_ratio((box.xtl, box.ytl, box.xbr, box.ybr))
-            if ratio > self.max_aspect_ratio or ratio < self.min_aspect_ratio:
-                errors.append(generate_error_payload(
-                    frame.name, box.id, "Extreme_Aspect_Ratio",
-                    [box.xtl, box.ytl, box.xbr, box.ybr],
-                    ratio=ratio, label=box.label
+            if self._is_extreme_ratio(ratio):
+                errors.append(self._create_bbox_error(
+                    frame, box, "Extreme_Aspect_Ratio",
+                    ratio=ratio
                 ))
         return errors
 
+    def _is_extreme_ratio(self, ratio: float) -> bool:
+        """Check if aspect ratio is extreme"""
+        return ratio > self.max_aspect_ratio or ratio < self.min_aspect_ratio
+
     def _check_label_consistency(self, frame: Frame) -> List[Dict]:
-        """Check for label consistency (e.g., pedestrian inside car)"""
+        """Check for label consistency"""
         errors = []
+        label_hierarchy = self._get_label_hierarchy()
         
-        # Define label hierarchy: child labels should not be inside parent labels
-        label_hierarchy = {
+        for child_label, parent_labels in label_hierarchy.items():
+            errors.extend(self._check_child_parent_consistency(frame, child_label, parent_labels))
+        
+        return errors
+
+    def _get_label_hierarchy(self) -> Dict[str, List[str]]:
+        """Get label hierarchy definitions"""
+        return {
             "pedestrian": ["car", "truck", "bus"],
             "person": ["car", "truck", "bus"]
         }
+
+    def _check_child_parent_consistency(self, frame: Frame, child_label: str,
+                                         parent_labels: List[str]) -> List[Dict]:
+        """Check if child label objects are inside parent label objects"""
+        errors = []
+        child_boxes = [b for b in frame.bboxes if b.label == child_label]
         
-        for child_label, parent_labels in label_hierarchy.items():
-            child_boxes = [b for b in frame.bboxes if b.label == child_label]
-            
-            for child in child_boxes:
-                child_box = (child.xtl, child.ytl, child.xbr, child.ybr)
-                for parent_label in parent_labels:
-                    parent_boxes = [b for b in frame.bboxes 
-                                   if b.label == parent_label and b.id != child.id]
-                    for parent in parent_boxes:
-                        parent_box = (parent.xtl, parent.ytl, parent.xbr, parent.ybr)
-                        iou = calculate_iou(child_box, parent_box)
-                        if iou > 0.95:
-                            errors.append(generate_error_payload(
-                                frame.name, child.id, "Label_Consistency",
-                                [child.xtl, child.ytl, child.xbr, child.ybr],
-                                child_label=child_label, 
-                                parent_label=parent_label
-                            ))
+        for child in child_boxes:
+            errors.extend(self._check_child_against_parents(
+                frame, child, child_label, parent_labels
+            ))
         return errors
+
+    def _check_child_against_parents(self, frame: Frame, child: Bbox, child_label: str,
+                                     parent_labels: List[str]) -> List[Dict]:
+        """Check if a child box is inside any parent box"""
+        errors = []
+        child_box = (child.xtl, child.ytl, child.xbr, child.ybr)
+        
+        for parent_label in parent_labels:
+            parent_boxes = [b for b in frame.bboxes
+                          if b.label == parent_label and b.id != child.id]
+            for parent in parent_boxes:
+                parent_box = (parent.xtl, parent.ytl, parent.xbr, parent.ybr)
+                if self._is_child_in_parent(child_box, parent_box):
+                    errors.append(generate_error_payload(
+                        frame.name, child.id, "Label_Consistency",
+                        [child.xtl, child.ytl, child.xbr, child.ybr],
+                        child_label=child_label,
+                        parent_label=parent_label
+                    ))
+        return errors
+
+    def _is_child_in_parent(self, child_box: Tuple, parent_box: Tuple) -> bool:
+        """Check if child box is inside parent box with high IoU"""
+        return calculate_iou(child_box, parent_box) > 0.95

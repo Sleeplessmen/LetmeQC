@@ -8,7 +8,6 @@ import json
 from datetime import datetime
 from typing import Dict, List, Optional
 from pathlib import Path
-import os
 
 
 class QCReport:
@@ -18,9 +17,8 @@ class QCReport:
         self.job_id = job_id
         self.job_name = job_name
         self.timestamp = datetime.now().isoformat()
-        self.status = "pending"  # pending, passed, failed
+        self.status = "pending"
         
-        # Basic metrics
         self.total_frames = 0
         self.total_annotations = 0
         self.errors: List[Dict] = []
@@ -43,10 +41,7 @@ class QCReport:
         return self.error_type_counts
     
     def to_summary_dict(self) -> Dict:
-        """
-        Convert report to summary dictionary (short, max 50 lines)
-        Only includes summary information, not full error details
-        """
+        """Convert report to summary dictionary"""
         return {
             "job_id": self.job_id,
             "job_name": self.job_name,
@@ -64,31 +59,21 @@ class QCReport:
         }
     
     def save(self, reports_dir: str = "reports") -> str:
-        """
-        Save report to JSON file
-        - Create directory if not exists
-        - Keep only max 5 reports (delete oldest)
-        - Save short summary file
-        """
-        # Create directory
+        """Save report to JSON file"""
         Path(reports_dir).mkdir(parents=True, exist_ok=True)
         
-        # List existing report files
         existing_reports = sorted(
             Path(reports_dir).glob("report_job_*.json"),
             key=lambda p: p.stat().st_mtime
         )
         
-        # Delete oldest reports if more than 5
         while len(existing_reports) >= 5:
             oldest = existing_reports.pop(0)
             oldest.unlink()
         
-        # Create filename
         filename = f"report_job_{self.job_id}_{self.timestamp.replace(':', '-').replace('.', '-')}.json"
         filepath = Path(reports_dir) / filename
         
-        # Save summary file
         with open(filepath, 'w', encoding='utf-8') as f:
             json.dump(self.to_summary_dict(), f, indent=2, ensure_ascii=False)
         
