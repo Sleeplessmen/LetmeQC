@@ -2,12 +2,9 @@
 
 **Hướng dẫn tích hợp LetmeQC với CVAT thông qua webhook để tự động chạy QC khi annotator hoàn thành công việc.**
 
-Công cụ LetmeQC có thể hoạt động ở 2 chế độ:
+LetmeQC hoạt động như một **web service** nhận webhook từ CVAT.
 
-- **Offline Mode**: Chạy QC trực tiếp trên file COCO JSON đã export
-- **Online Mode (Webhook)**: Tự động trigger QC khi job trong CVAT chuyển sang status "validation"
-
-Hướng dẫn này tập trung vào **Online Mode** - setup webhook server và cấu hình trong CVAT.
+Hướng dẫn này sẽ hướng dẫn bạn setup webhook server và cấu hình trong CVAT.
 
 ---
 

@@ -334,7 +334,7 @@ with open("dataset.zip", "wb") as f:
 
 | Phương pháp | Ưu điểm | Nhược điểm | Khuyến nghị |
 |-------------|---------|-------------|-------------|
-| **Export Dataset** | File .zip hoàn chỉnh | Độ trễ cao (phải đợi tạo file) | Chỉ dùng cho offline audit |
+| **Export Dataset** | File .zip hoàn chỉnh | Độ trễ cao (phải đợi tạo file) | Chỉ dùng cho backup hoặc archive |
 | **RAW Annotations** | Nhanh, real-time | Chưa có ảnh | ✅ **Ưu tiên** cho QC real-time |
 
 **Endpoint thay thế**: `GET /api/jobs/{id}/annotations`
