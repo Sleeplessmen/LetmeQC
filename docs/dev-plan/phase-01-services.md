@@ -58,9 +58,10 @@ from src.clients.database_client import DatabaseClient
 class JobService:
     """Service for managing jobs."""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, db_client: Optional[DatabaseClient] = None):
         self.db = db
-        self.db_client = DatabaseClient()
+        # Pass db session directly to DatabaseClient instead of monkey patching
+        self.db_client = db_client or DatabaseClient(db_session=db)
     
     def create_job(self, job_data: JobCreate) -> JobResponse:
         """
@@ -72,9 +73,6 @@ class JobService:
         Returns:
             JobResponse with created job data
         """
-        # Override SessionLocal for this instance
-        self.db_client.SessionLocal = lambda: self.db
-        
         job = self.db_client.create_job(
             cvat_job_id=job_data.cvat_job_id,
             cvat_project_id=job_data.cvat_project_id,
@@ -96,7 +94,6 @@ class JobService:
         Returns:
             JobResponse or None if not found
         """
-        self.db_client.SessionLocal = lambda: self.db
         job = self.db_client.get_job_by_id(job_id)
         if job:
             return JobResponse.model_validate(job)
@@ -112,7 +109,6 @@ class JobService:
         Returns:
             JobResponse or None if not found
         """
-        self.db_client.SessionLocal = lambda: self.db
         job = self.db_client.get_job_by_cvat_id(cvat_job_id)
         if job:
             return JobResponse.model_validate(job)
@@ -129,8 +125,6 @@ class JobService:
         Returns:
             Updated JobResponse or None if not found
         """
-        self.db_client.SessionLocal = lambda: self.db
-        
         # Update status and/or stage
         status = job_data.status.value if job_data.status else None
         stage = job_data.stage.value if job_data.stage else None
@@ -166,9 +160,25 @@ class JobService:
         Returns:
             List of JobResponse objects
         """
-        self.db_client.SessionLocal = lambda: self.db
         jobs = self.db_client.list_jobs(status, stage, limit, offset)
         return [JobResponse.model_validate(job) for job in jobs]
+    
+    def list_jobs_with_count(self, status: Optional[str] = None, stage: Optional[str] = None,
+                           limit: int = 100, offset: int = 0) -> Tuple[List[JobResponse], int]:
+        """
+        List jobs with total count for pagination.
+        
+        Args:
+            status: Filter by job status
+            stage: Filter by job stage
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            Tuple of (list of JobResponse objects, total count)
+        """
+        jobs, total_count = self.db_client.list_jobs_with_count(status, stage, limit, offset)
+        return [JobResponse.model_validate(job) for job in jobs], total_count
     
     def get_job_statistics(self) -> dict:
         """
@@ -177,7 +187,6 @@ class JobService:
         Returns:
             Dictionary with job statistics
         """
-        self.db_client.SessionLocal = lambda: self.db
         return self.db_client.get_job_statistics()
 ```
 
@@ -187,7 +196,7 @@ Manages QC issues.
 
 ```python
 # src/services/issue_service.py
-from typing import Optional, List
+from typing import Optional, List, Tuple
 from sqlalchemy.orm import Session
 
 from database.schemas.issue import Issue
@@ -198,9 +207,10 @@ from src.clients.database_client import DatabaseClient
 class IssueService:
     """Service for managing QC issues."""
     
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, db_client: Optional[DatabaseClient] = None):
         self.db = db
-        self.db_client = DatabaseClient()
+        # Pass db session directly to DatabaseClient instead of monkey patching
+        self.db_client = db_client or DatabaseClient(db_session=db)
     
     def create_issue(self, job_id: int, issue_data: IssueCreate) -> IssueResponse:
         """
@@ -213,8 +223,6 @@ class IssueService:
         Returns:
             IssueResponse with created issue
         """
-        self.db_client.SessionLocal = lambda: self.db
-        
         issue = self.db_client.create_issue(
             cvat_issue_id=issue_data.cvat_issue_id,
             job_id=job_id,
@@ -236,7 +244,6 @@ class IssueService:
         Returns:
             IssueResponse or None if not found
         """
-        self.db_client.SessionLocal = lambda: self.db
         issue = self.db_client.get_issue_by_id(issue_id)
         if issue:
             return IssueResponse.model_validate(issue)
@@ -249,6 +256,29 @@ class IssueService:
         
         Args:
             job_id: Job ID
+            
+        Returns:
+            List of IssueResponse objects
+        """
+        issues = self.db_client.get_issues_by_job(job_id, status, limit, offset)
+        return [IssueResponse.model_validate(issue) for issue in issues]
+    
+    def get_issues_by_job_with_count(self, job_id: int, status: Optional[str] = None,
+                                       limit: int = 100, offset: int = 0) -> Tuple[List[IssueResponse], int]:
+        """
+        Get issues for a job with total count for pagination.
+        
+        Args:
+            job_id: Job ID
+            status: Filter by issue status
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            Tuple of (list of IssueResponse objects, total count)
+        """
+        issues, total_count = self.db_client.get_issues_by_job_with_count(job_id, status, limit, offset)
+        return [IssueResponse.model_validate(issue) for issue in issues], total_count
             status: Filter by issue status
             limit: Maximum number of results
             offset: Number of results to skip
@@ -331,9 +361,11 @@ logger = logging.getLogger(__name__)
 class QCService:
     """Enhanced QC service with database integration."""
     
-    def __init__(self, db: Session, cvat_client: Optional[CVATClient] = None):
+    def __init__(self, db: Session, cvat_client: Optional[CVATClient] = None,
+                 db_client: Optional[DatabaseClient] = None):
         self.db = db
-        self.db_client = DatabaseClient()
+        # Pass db session directly to DatabaseClient instead of monkey patching
+        self.db_client = db_client or DatabaseClient(db_session=db)
         self.cvat_client = cvat_client or CVATClient()
         self.rule_engine = QCRuleEngine()
     
@@ -347,8 +379,6 @@ class QCService:
         Returns:
             Job object or None if failed
         """
-        self.db_client.SessionLocal = lambda: self.db
-        
         try:
             # Get job info from CVAT
             job_info = self.cvat_client.get_job_info(cvat_job_id)
@@ -469,7 +499,6 @@ class QCService:
                          error_details: Optional[Dict] = None, severity: str = "medium",
                          rule_id: Optional[int] = None) -> None:
         """Helper to create QC result."""
-        self.db_client.SessionLocal = lambda: self.db
         self.db_client.create_qc_result(
             job_id=job_id,
             frame_index=frame_index,
@@ -487,17 +516,34 @@ class QCService:
         return parse_cvat_annotations(annotations_data)
     
     def _update_labeler_metrics(self, job_id: int) -> None:
-        """Update labeler metrics based on QC results."""
-        # This will be enhanced in Phase 2 with actual labeler data from CVAT
-        # For now, we'll use placeholder data
+        """Update labeler metrics based on QC results.
+        
+        NOTE: This method now requires the job to have assignee_id from CVAT metadata.
+        If assignee_id is not available, metrics will not be created to avoid
+        polluting the database with fake data.
+        """
+        # Get job to retrieve actual labeler info from CVAT metadata
+        job = self.db_client.get_job_by_id(job_id)
+        if not job or not job.metadata:
+            # Cannot create metrics without labeler info
+            return
+        
+        # Extract labeler info from job metadata (set by CVAT webhook)
+        assignee_id = job.metadata.get('assignee', {}).get('id')
+        assignee_name = job.metadata.get('assignee', {}).get('username', 'Unknown')
+        cvat_project_id = job.cvat_project_id
+        
+        if not assignee_id:
+            # No labeler assigned, skip metrics
+            return
+        
         qc_results = self.db_client.get_qc_results_by_job(job_id)
         
-        # Group by labeler (placeholder - actual implementation needs CVAT data)
-        # For Phase 1, we'll just create dummy labeler metrics
+        # Update metrics aggregated by project, not by job
         self.db_client.create_or_update_labeler_metrics(
-            labeler_id=1,
-            labeler_name="System",
-            job_id=job_id,
+            labeler_id=assignee_id,
+            labeler_name=assignee_name,
+            cvat_project_id=cvat_project_id,
             total_annotations=len(qc_results),
             qc_passed=len([r for r in qc_results if r.qc_status == 'pass']),
             qc_failed=len([r for r in qc_results if r.qc_status == 'fail']),
@@ -520,7 +566,6 @@ class QCService:
         Returns:
             List of QC result dictionaries
         """
-        self.db_client.SessionLocal = lambda: self.db
         results = self.db_client.get_qc_results_by_job(job_id, frame_index, qc_status, limit, offset)
         
         return [
@@ -539,6 +584,42 @@ class QCService:
             for r in results
         ]
     
+    def get_qc_results_with_count(self, job_id: int, frame_index: Optional[int] = None,
+                                  qc_status: Optional[str] = None, limit: int = 1000,
+                                  offset: int = 0) -> Tuple[List[Dict[str, Any]], int]:
+        """
+        Get QC results for a job with total count for pagination.
+        
+        Args:
+            job_id: Job ID
+            frame_index: Optional filter by frame index
+            qc_status: Optional filter by QC status
+            limit: Maximum number of results
+            offset: Number of results to skip
+            
+        Returns:
+            Tuple of (list of QC result dictionaries, total count)
+        """
+        results, total_count = self.db_client.get_qc_results_by_job_with_count(
+            job_id, frame_index, qc_status, limit, offset
+        )
+        
+        return [
+            {
+                "id": r.id,
+                "job_id": r.job_id,
+                "frame_index": r.frame_index,
+                "annotation_id": r.annotation_id,
+                "qc_status": r.qc_status,
+                "error_type": r.error_type,
+                "error_details": r.error_details,
+                "severity": r.severity,
+                "rule_id": r.rule_id,
+                "created_at": r.created_at.isoformat()
+            }
+            for r in results
+        ], total_count
+    
     def get_qc_summary(self, job_id: int) -> Dict[str, Any]:
         """
         Get QC summary for a job.
@@ -549,7 +630,6 @@ class QCService:
         Returns:
             Dictionary with QC summary statistics
         """
-        self.db_client.SessionLocal = lambda: self.db
         summary = self.db_client.get_qc_summary(job_id)
         
         # Convert to response format

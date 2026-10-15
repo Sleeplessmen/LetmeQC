@@ -59,7 +59,7 @@ CREATE TABLE qc_results (
     error_type VARCHAR(100),
     error_details JSONB,
     severity VARCHAR(20) DEFAULT 'medium',  -- low, medium, high, critical
-    rule_id INTEGER,  -- Reference to rule that failed
+    rule_id INTEGER REFERENCES qc_rules(id),  -- Reference to rule that failed
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -68,6 +68,7 @@ CREATE INDEX idx_qc_results_frame_index ON qc_results(frame_index);
 CREATE INDEX idx_qc_results_status ON qc_results(qc_status);
 CREATE INDEX idx_qc_results_job_frame ON qc_results(job_id, frame_index);
 CREATE INDEX idx_qc_results_status_severity ON qc_results(qc_status, severity);
+CREATE INDEX idx_qc_results_rule_id ON qc_results(rule_id);
 ```
 
 #### 3. Issues Table
@@ -79,7 +80,7 @@ CREATE TABLE issues (
     cvat_issue_id INTEGER UNIQUE,
     job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
     frame_index INTEGER NOT NULL,
-    position JSONB NOT NULL,  -- {x, y, width, height}
+    position JSONB NOT NULL,  -- [x1, y1, x2, y2] - matching CVAT API format
     message TEXT NOT NULL,
     assignee_id INTEGER,  -- CVAT user ID
     status VARCHAR(50) DEFAULT 'open',  -- open, resolved, rejected
@@ -95,14 +96,14 @@ CREATE INDEX idx_issues_frame_index ON issues(frame_index);
 ```
 
 #### 4. Labeler Metrics Table
-Stores performance metrics for each labeler
+Stores performance metrics for each labeler (aggregated by project, not job)
 
 ```sql
 CREATE TABLE labeler_metrics (
     id SERIAL PRIMARY KEY,
     labeler_id INTEGER NOT NULL,  -- CVAT user ID
     labeler_name VARCHAR(255),
-    job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
+    cvat_project_id INTEGER,  -- Track by project instead of job to avoid redundancy
     total_annotations INTEGER DEFAULT 0,
     qc_passed INTEGER DEFAULT 0,
     qc_failed INTEGER DEFAULT 0,
@@ -111,11 +112,33 @@ CREATE TABLE labeler_metrics (
     last_activity TIMESTAMP,
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
-    UNIQUE(labeler_id, job_id)
+    UNIQUE(labeler_id, cvat_project_id)
 );
 
 CREATE INDEX idx_labeler_metrics_labeler_id ON labeler_metrics(labeler_id);
-CREATE INDEX idx_labeler_metrics_job_id ON labeler_metrics(job_id);
+CREATE INDEX idx_labeler_metrics_project_id ON labeler_metrics(cvat_project_id);
+```
+
+#### 5. QC Rules Table
+Stores QC rule definitions for referential integrity
+
+```sql
+CREATE TABLE qc_rules (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    code VARCHAR(100) UNIQUE NOT NULL,  -- e.g., 'bbox_min_area', 'overlap_detection'
+    description TEXT,
+    category VARCHAR(50) NOT NULL,  -- e.g., 'geometry', 'semantic', 'duplication'
+    config JSONB DEFAULT '{}',  -- Rule-specific configuration
+    is_active BOOLEAN DEFAULT true,
+    is_custom BOOLEAN DEFAULT false,  -- True for custom rules, False for default
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+CREATE INDEX idx_qc_rules_code ON qc_rules(code);
+CREATE INDEX idx_qc_rules_category ON qc_rules(category);
+CREATE INDEX idx_qc_rules_is_active ON qc_rules(is_active);
 ```
 
 ---
@@ -180,7 +203,7 @@ class QCResult(Base):
     error_type = Column(String(100))
     error_details = Column(JSON)
     severity = Column(String(20), default="medium")
-    rule_id = Column(Integer)
+    rule_id = Column(Integer, ForeignKey("qc_rules.id"))
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -209,7 +232,7 @@ class Issue(Base):
     cvat_issue_id = Column(Integer, unique=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
     frame_index = Column(Integer, nullable=False, index=True)
-    position = Column(JSON, nullable=False)
+    position = Column(JSON, nullable=False)  -- Stores as [x1, y1, x2, y2] to match CVAT API
     message = Column(String, nullable=False)
     assignee_id = Column(Integer)
     status = Column(String(50), default="open", index=True)
@@ -252,8 +275,31 @@ class LabelerMetrics(Base):
     
     # Unique constraint
     __table_args__ = (
-        UniqueConstraint('labeler_id', 'job_id', name='uq_labeler_job'),
+        UniqueConstraint('labeler_id', 'cvat_project_id', name='uq_labeler_project'),
     )
+
+
+### QC Rule Model
+
+```python
+# database/schemas/qc_rule.py
+from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, Index
+from datetime import datetime
+from .base import Base
+
+class QCRule(Base):
+    __tablename__ = "qc_rules"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    code = Column(String(100), unique=True, nullable=False, index=True)
+    description = Column(String, nullable=False)
+    category = Column(String(50), nullable=False, index=True)
+    config = Column(JSON, default={})
+    is_active = Column(Boolean, default=True)
+    is_custom = Column(Boolean, default=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 ```
 
 ---
@@ -264,7 +310,7 @@ Centralized database access layer for all CRUD operations.
 
 ```python
 # src/clients/database_client.py
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from sqlalchemy.orm import Session
 from sqlalchemy import select, and_, or_, func, desc
 from datetime import datetime, timedelta
@@ -279,11 +325,16 @@ from database.session import SessionLocal
 class DatabaseClient:
     """Centralized database access layer for LetmeQC."""
     
-    def __init__(self):
+    def __init__(self, db_session: Optional[Session] = None):
         self.SessionLocal = SessionLocal
+        self._external_session = db_session
     
     def get_db_session(self) -> Session:
-        """Get a new database session."""
+        """Get a new database session, or use injected session if provided."""
+        # If an external session was injected, use it
+        if self._external_session is not None:
+            return self._external_session
+        # Otherwise, create a new session
         return self.SessionLocal()
     
     # ==================== JOB OPERATIONS ====================
@@ -356,6 +407,31 @@ class DatabaseClient:
         finally:
             db.close()
     
+    def list_jobs_with_count(self, status: Optional[str] = None, stage: Optional[str] = None,
+                           limit: int = 100, offset: int = 0) -> Tuple[List[Job], int]:
+        """List jobs with total count for pagination."""
+        db = self.get_db_session()
+        try:
+            # Get total count first
+            query = db.query(Job)
+            if status:
+                query = query.filter(Job.status == status)
+            if stage:
+                query = query.filter(Job.stage == stage)
+            total = query.count()
+            
+            # Get paginated results
+            query = db.query(Job)
+            if status:
+                query = query.filter(Job.status == status)
+            if stage:
+                query = query.filter(Job.stage == stage)
+            jobs = query.order_by(desc(Job.created_at)).offset(offset).limit(limit).all()
+            
+            return jobs, total
+        finally:
+            db.close()
+    
     # ==================== QC RESULT OPERATIONS ====================
     
     def create_qc_result(self, job_id: int, frame_index: int, annotation_id: Optional[int],
@@ -397,6 +473,32 @@ class DatabaseClient:
         finally:
             db.close()
     
+    def get_qc_results_by_job_with_count(self, job_id: int, frame_index: Optional[int] = None,
+                                           qc_status: Optional[str] = None, limit: int = 1000,
+                                           offset: int = 0) -> Tuple[List[QCResult], int]:
+        """Get QC results for a job with total count for pagination."""
+        db = self.get_db_session()
+        try:
+            # Get total count
+            query = db.query(QCResult).filter(QCResult.job_id == job_id)
+            if frame_index is not None:
+                query = query.filter(QCResult.frame_index == frame_index)
+            if qc_status:
+                query = query.filter(QCResult.qc_status == qc_status)
+            total = query.count()
+            
+            # Get paginated results
+            query = db.query(QCResult).filter(QCResult.job_id == job_id)
+            if frame_index is not None:
+                query = query.filter(QCResult.frame_index == frame_index)
+            if qc_status:
+                query = query.filter(QCResult.qc_status == qc_status)
+            results = query.offset(offset).limit(limit).all()
+            
+            return results, total
+        finally:
+            db.close()
+    
     def count_qc_results(self, job_id: int, qc_status: Optional[str] = None) -> int:
         """Count QC results for a job."""
         db = self.get_db_session()
@@ -409,31 +511,46 @@ class DatabaseClient:
             db.close()
     
     def get_qc_summary(self, job_id: int) -> Dict[str, Any]:
-        """Get summary statistics for QC results of a job."""
+        """Get summary statistics for QC results of a job.
+        
+        Optimized: Uses single query with GROUP BY instead of N+1 queries.
+        """
         db = self.get_db_session()
         try:
-            total = self.count_qc_results(job_id)
-            passed = self.count_qc_results(job_id, 'pass')
-            failed = self.count_qc_results(job_id, 'fail')
-            warnings = self.count_qc_results(job_id, 'warning')
-            
-            # Count by error type
-            error_counts = db.query(
+            # Single query to get all counts at once
+            results = db.query(
+                QCResult.qc_status,
+                func.count(QCResult.id).label('count'),
                 QCResult.error_type,
-                func.count(QCResult.id).label('count')
+                QCResult.severity
             ).filter(
-                QCResult.job_id == job_id,
-                QCResult.qc_status == 'fail'
-            ).group_by(QCResult.error_type).all()
+                QCResult.job_id == job_id
+            ).group_by(
+                QCResult.qc_status,
+                QCResult.error_type,
+                QCResult.severity
+            ).all()
             
-            # Count by severity
-            severity_counts = db.query(
-                QCResult.severity,
-                func.count(QCResult.id).label('count')
-            ).filter(
-                QCResult.job_id == job_id,
-                QCResult.qc_status == 'fail'
-            ).group_by(QCResult.severity).all()
+            # Aggregate results
+            counts = {'total': 0, 'passed': 0, 'failed': 0, 'warnings': 0}
+            by_error_type = {}
+            by_severity = {}
+            
+            for row in results:
+                counts['total'] += row.count
+                if row.qc_status:
+                    counts[row.qc_status.lower()] = counts.get(row.qc_status.lower(), 0) + row.count
+                
+                if row.qc_status == 'fail':
+                    if row.error_type:
+                        by_error_type[row.error_type] = by_error_type.get(row.error_type, 0) + row.count
+                    if row.severity:
+                        by_severity[row.severity] = by_severity.get(row.severity, 0) + row.count
+            
+            total = counts['total']
+            passed = counts.get('passed', 0)
+            failed = counts.get('failed', 0)
+            warnings = counts.get('warnings', 0)
             
             return {
                 'total': total,
@@ -442,8 +559,8 @@ class DatabaseClient:
                 'warnings': warnings,
                 'pass_rate': (passed / total * 100) if total > 0 else 0,
                 'fail_rate': (failed / total * 100) if total > 0 else 0,
-                'by_error_type': {r.error_type: r.count for r in error_counts},
-                'by_severity': {r.severity: r.count for r in severity_counts}
+                'by_error_type': by_error_type,
+                'by_severity': by_severity
             }
         finally:
             db.close()
@@ -489,6 +606,27 @@ class DatabaseClient:
             if status:
                 query = query.filter(Issue.status == status)
             return query.order_by(desc(Issue.created_at)).offset(offset).limit(limit).all()
+        finally:
+            db.close()
+    
+    def get_issues_by_job_with_count(self, job_id: int, status: Optional[str] = None,
+                                     limit: int = 100, offset: int = 0) -> Tuple[List[Issue], int]:
+        """Get issues for a job with total count for pagination."""
+        db = self.get_db_session()
+        try:
+            # Get total count
+            query = db.query(Issue).filter(Issue.job_id == job_id)
+            if status:
+                query = query.filter(Issue.status == status)
+            total = query.count()
+            
+            # Get paginated results
+            query = db.query(Issue).filter(Issue.job_id == job_id)
+            if status:
+                query = query.filter(Issue.status == status)
+            issues = query.order_by(desc(Issue.created_at)).offset(offset).limit(limit).all()
+            
+            return issues, total
         finally:
             db.close()
     
@@ -747,7 +885,8 @@ alembic init database
 ```ini
 [alembic]
 script_location = database/migrations
-sqlalchemy.url = postgresql://letmeqc:letmeqc@localhost:5432/letmeqc_dev
+# Use environment variable to work both inside and outside containers
+sqlalchemy.url = ${DATABASE_URL:-postgresql://letmeqc:letmeqc@db:5432/letmeqc_dev}
 
 [post_write_hooks]
 [post_write_hooks.lint]
@@ -777,8 +916,11 @@ config = context.config
 # Add your model's MetaData object here
 target_metadata = Base.metadata
 
-# Other values from the config
-config.set_main_option('sqlalchemy.url', os.getenv('DATABASE_URL'))
+# Override database URL from environment variable
+# This takes precedence over alembic.ini configuration
+database_url = os.getenv('DATABASE_URL')
+if database_url:
+    config.set_main_option('sqlalchemy.url', database_url)
 
 
 def run_migrations_offline():

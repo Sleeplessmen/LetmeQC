@@ -32,19 +32,20 @@ Development: http://localhost:8000/api/v1
 
 | Method | Endpoint | Description | Response Model |
 |--------|----------|-------------|----------------|
-| GET | `/api/v1/jobs` | List all jobs | List[JobResponse] |
+| POST | `/webhook/cvat` | Receive CVAT webhook events | WebhookResponse |
+| GET | `/api/v1/jobs` | List all jobs | PaginatedResponse[JobResponse] |
 | GET | `/api/v1/jobs/{job_id}` | Get job by ID | JobResponse |
 | GET | `/api/v1/jobs/cvat/{cvat_job_id}` | Get job by CVAT ID | JobResponse |
 | POST | `/api/v1/jobs` | Create a job | JobResponse |
 | PUT | `/api/v1/jobs/{job_id}` | Update job | JobResponse |
-| GET | `/api/v1/jobs/{job_id}/qc-results` | Get QC results | List[QCResultResponse] |
+| GET | `/api/v1/jobs/{job_id}/qc-results` | Get QC results | PaginatedResponse[QCResultResponse] |
 | GET | `/api/v1/jobs/{job_id}/qc-results/summary` | Get QC summary | QCSummaryResponse |
-| GET | `/api/v1/jobs/{job_id}/issues` | Get issues | List[IssueResponse] |
+| GET | `/api/v1/jobs/{job_id}/issues` | Get issues | PaginatedResponse[IssueResponse] |
 | POST | `/api/v1/jobs/{job_id}/issues` | Create issue | IssueResponse |
 | PUT | `/api/v1/issues/{issue_id}` | Update issue | IssueResponse |
 | GET | `/api/v1/reports/metrics` | Get overall metrics | MetricsResponse |
-| GET | `/api/v1/reports/daily-trends` | Get daily trends | List[DailyTrend] |
-| GET | `/api/v1/reports/labelers` | Get labeler metrics | List[LabelerPerformance] |
+| GET | `/api/v1/reports/daily-trends` | Get daily trends | PaginatedResponse[DailyTrend] |
+| GET | `/api/v1/reports/labelers` | Get labeler metrics | PaginatedResponse[LabelerPerformance] |
 | GET | `/api/v1/reports/jobs/{job_id}` | Get job report | ReportResponse |
 
 ---
@@ -226,6 +227,62 @@ class IssueResponse(IssueBase):
         from_attributes = True
 ```
 
+### Pagination Model
+
+```python
+# src/models/pagination.py
+from pydantic import BaseModel, Field
+from typing import Generic, TypeVar, List
+
+T = TypeVar('T')
+
+class PaginatedResponse(BaseModel, Generic[T]):
+    """Generic paginated response wrapper."""
+    total_count: int = Field(..., description="Total number of records", ge=0)
+    limit: int = Field(..., description="Number of records per page", ge=1)
+    offset: int = Field(..., description="Current offset", ge=0)
+    data: List[T] = Field(default_factory=list, description="List of records")
+    
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "total_count": 100,
+                    "limit": 20,
+                    "offset": 0,
+                    "data": []
+                }
+            ]
+        }
+```
+
+### Webhook Models
+
+```python
+# src/models/webhook.py
+from pydantic import BaseModel, Field
+from typing import Optional
+
+class WebhookResponse(BaseModel):
+    """Webhook response model."""
+    status: str = Field(..., description="Processing status (received, processing, skipped, error)")
+    job_id: Optional[int] = Field(None, description="Job ID if applicable")
+    cvat_job_id: Optional[int] = Field(None, description="CVAT job ID if applicable")
+    message: str = Field(..., description="Status message")
+    
+    class Config:
+        json_schema_extra = {
+            "examples": [
+                {
+                    "status": "processing",
+                    "job_id": 1,
+                    "cvat_job_id": 12345,
+                    "message": "QC processing started"
+                }
+            ]
+        }
+```
+
 ### Report Models
 
 ```python
@@ -300,11 +357,12 @@ src/app/api/v1/
 # src/app/api/v1/main.py
 from fastapi import APIRouter
 
-from src.app.api.v1.routers import jobs, qc_results, issues, reports
+from src.app.api.v1.routers import jobs, qc_results, issues, reports, webhook
 
 api_router = APIRouter()
 
 # Include all routers
+api_router.include_router(webhook.router)
 api_router.include_router(jobs.router)
 api_router.include_router(qc_results.router)
 api_router.include_router(issues.router)
@@ -316,17 +374,18 @@ api_router.include_router(reports.router)
 ```python
 # src/app/api/v1/routers/jobs.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import List, Optional
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from src.models.job import JobResponse, JobCreate, JobUpdate, JobStatus, JobStage
+from src.models.pagination import PaginatedResponse
 from src.services.job_service import JobService
 from src.app.dependencies import get_db
 
 router = APIRouter(prefix="/api/v1/jobs", tags=["jobs"])
 
 
-@router.get("/", response_model=List[JobResponse])
+@router.get("/", response_model=PaginatedResponse[JobResponse])
 async def list_jobs(
     status: Optional[JobStatus] = Query(None, description="Filter by job status"),
     stage: Optional[JobStage] = Query(None, description="Filter by job stage"),
@@ -344,10 +403,16 @@ async def list_jobs(
     - `offset`: Number of results to skip for pagination
     
     **Returns:**
-    List of job objects with their details
+    Paginated response with total_count, limit, offset, and list of jobs
     """
     job_service = JobService(db)
-    return job_service.list_jobs(status=status, stage=stage, limit=limit, offset=offset)
+    jobs, total_count = job_service.list_jobs_with_count(status=status, stage=stage, limit=limit, offset=offset)
+    return PaginatedResponse(
+        total_count=total_count,
+        limit=limit,
+        offset=offset,
+        data=jobs
+    )
 
 
 @router.get("/{job_id}", response_model=JobResponse)
@@ -449,17 +514,18 @@ async def update_job(
 ```python
 # src/app/api/v1/routers/qc_results.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import List, Optional
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from src.models.qc_result import QCResultResponse, QCSummary
+from src.models.pagination import PaginatedResponse
 from src.services.qc_service import QCService
 from src.app.dependencies import get_db
 
 router = APIRouter(prefix="/api/v1/jobs/{job_id}/qc-results", tags=["qc-results"])
 
 
-@router.get("/", response_model=List[QCResultResponse])
+@router.get("/", response_model=PaginatedResponse[QCResultResponse])
 async def get_qc_results(
     job_id: int,
     frame_index: Optional[int] = Query(None, description="Filter by frame index"),
@@ -481,10 +547,16 @@ async def get_qc_results(
     - `offset`: Number of results to skip
     
     **Returns:**
-    List of QC result objects
+    Paginated response with total_count, limit, offset, and list of QC results
     """
     qc_service = QCService(db)
-    return qc_service.get_qc_results(job_id, frame_index, qc_status, limit, offset)
+    results, total_count = qc_service.get_qc_results_with_count(job_id, frame_index, qc_status, limit, offset)
+    return PaginatedResponse(
+        total_count=total_count,
+        limit=limit,
+        offset=offset,
+        data=results
+    )
 
 
 @router.get("/summary", response_model=QCSummary)
@@ -510,17 +582,18 @@ async def get_qc_summary(job_id: int, db: Session = Depends(get_db)):
 ```python
 # src/app/api/v1/routers/issues.py
 from fastapi import APIRouter, Depends, HTTPException, Query
-from typing import List, Optional
+from typing import Optional
 from sqlalchemy.orm import Session
 
 from src.models.issue import IssueResponse, IssueCreate, IssueUpdate
+from src.models.pagination import PaginatedResponse
 from src.services.issue_service import IssueService
 from src.app.dependencies import get_db
 
 router = APIRouter(tags=["issues"])
 
 
-@router.get("/api/v1/jobs/{job_id}/issues", response_model=List[IssueResponse])
+@router.get("/api/v1/jobs/{job_id}/issues", response_model=PaginatedResponse[IssueResponse])
 async def get_issues(
     job_id: int,
     status: Optional[str] = Query(None, description="Filter by issue status"),
@@ -540,10 +613,16 @@ async def get_issues(
     - `offset`: Number of results to skip
     
     **Returns:**
-    List of issue objects
+    Paginated response with total_count, limit, offset, and list of issues
     """
     issue_service = IssueService(db)
-    return issue_service.get_issues_by_job(job_id, status, limit, offset)
+    issues, total_count = issue_service.get_issues_by_job_with_count(job_id, status, limit, offset)
+    return PaginatedResponse(
+        total_count=total_count,
+        limit=limit,
+        offset=offset,
+        data=issues
+    )
 
 
 @router.post("/api/v1/jobs/{job_id}/issues", response_model=IssueResponse, status_code=201)
@@ -691,6 +770,101 @@ async def get_job_report(job_id: int, db: Session = Depends(get_db)):
     if not report:
         raise HTTPException(status_code=404, detail="Job not found")
     return report
+```
+
+### Webhook Router
+
+**CRITICAL**: Webhook endpoint for receiving CVAT events and triggering QC processing.
+
+```python
+# src/app/api/v1/routers/webhook.py
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from fastapi.responses import JSONResponse
+from typing import Optional
+from sqlalchemy.orm import Session
+import logging
+
+from src.models.webhook import WebhookResponse
+from src.handlers.webhook_handlers import handle_cvat_webhook
+from src.app.dependencies import get_db
+
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/webhook", tags=["webhook"])
+
+
+@router.post("/cvat", response_model=WebhookResponse, status_code=status.HTTP_202_ACCEPTED)
+async def cvat_webhook(
+    request: Request,
+    x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
+    db: Session = Depends(get_db)
+):
+    """
+    Receive CVAT webhook events and trigger QC processing.
+    
+    This is the primary entry point for the entire QC workflow.
+    
+    **Headers:**
+    - `X-Webhook-Secret`: Required. Secret for validating webhook requests
+    
+    **Request Body:**
+    CVAT webhook payload with job status updates
+    
+    **Example Payload:**
+    ```json
+    {
+      "action": "update",
+      "resource": "job",
+      "id": 12345,
+      "name": "My Job",
+      "status": "validation",
+      "stage": "annotation",
+      "assignee": {"id": 1, "username": "annotator1"},
+      "frames_count": 100,
+      "annotations_count": 50
+    }
+    ```
+    
+    **Returns:**
+    Webhook response with processing status
+    
+    **Status Codes:**
+    - 202: Webhook accepted, QC processing started
+    - 200: Webhook received but skipped (not validation status)
+    - 401: Invalid webhook secret
+    - 400: Invalid payload
+    """
+    # Validate webhook secret
+    from src.config.settings import get_settings
+    settings = get_settings()
+    
+    if x_webhook_secret != settings.WEBHOOK_SECRET:
+        logger.warning(f"Invalid webhook secret from {request.client.host}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid webhook secret"
+        )
+    
+    # Get request body
+    try:
+        payload = await request.json()
+    except Exception as e:
+        logger.error(f"Failed to parse webhook payload: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid JSON payload"
+        )
+    
+    # Process webhook
+    try:
+        result = handle_cvat_webhook(payload, db)
+        return WebhookResponse(**result)
+    except Exception as e:
+        logger.error(f"Webhook processing failed: {e}")
+        return JSONResponse(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            content={"status": "error", "message": str(e)}
+        )
 ```
 
 ---

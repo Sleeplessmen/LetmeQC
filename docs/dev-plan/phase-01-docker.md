@@ -456,27 +456,23 @@ factory-boy==3.3.0
 # database/session.py
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, declarative_base
-from sqlalchemy.ext.declarative import declarative_base
 
 from src.config.settings import get_settings
 
 settings = get_settings()
 
-# Use asyncpg for production, sync for SQLite
-if settings.DATABASE_URL.startswith("postgresql"):
-    engine = create_engine(
-        settings.DATABASE_URL,
-        pool_size=20,
-        max_overflow=10,
-        pool_pre_ping=True,
-        pool_recycle=3600
-    )
-else:
-    # SQLite for development/testing
-    engine = create_engine(
-        settings.DATABASE_URL,
-        connect_args={"check_same_thread": False}
-    )
+# Always use the DATABASE_URL from settings
+# This works for both PostgreSQL (production) and SQLite (testing)
+# but requires explicit configuration - no automatic fallback
+engine = create_engine(
+    settings.DATABASE_URL,
+    pool_size=20,
+    max_overflow=10,
+    pool_pre_ping=True,
+    pool_recycle=3600,
+    # SQLite-specific settings only applied when using SQLite
+    connect_args={"check_same_thread": False} if settings.DATABASE_URL.startswith("sqlite") else {}
+)
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
