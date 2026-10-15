@@ -1,27 +1,26 @@
-# 📡 CVAT Webhook Integration Guide
+# CVAT Webhook Integration Guide
 
 **Hướng dẫn tích hợp LetmeQC với CVAT thông qua webhook để tự động chạy QC khi annotator hoàn thành công việc.**
 
 LetmeQC hoạt động như một **web service** nhận webhook từ CVAT.
-
 Hướng dẫn này sẽ hướng dẫn bạn setup webhook server và cấu hình trong CVAT.
 
 ---
 
-## 📋 Yêu cầu
+## Yêu cầu
 
 Trước khi bắt đầu, đảm bảo bạn có:
 
-- ✅ Python 3.10+ đã cài đặt
-- ✅ Dự án LetmeQC đã clone và cài đặt dependencies (xem [README.md](README.md))
-- ✅ Tài khoản CVAT với quyền admin/manager
-- ✅ CVAT API Token (lấy từ **Profile → Settings → API Token**)
+- Python 3.10+ đã cài đặt
+- Dự án LetmeQC đã clone và cài đặt dependencies (xem [README.md](README.md))
+- Tài khoản CVAT với quyền admin/manager
+- CVAT API Token (lấy từ **Profile → Settings → API Token**)
 
 ---
 
-## 🚀 Bước 1: Cấu hình Environment
+## Bước 1: Cấu hình Environment
 
-### 1.1 Tạo file `.env`
+1. Tạo file `.env`
 
 Copy file mẫu và điền thông tin:
 
@@ -49,7 +48,7 @@ SERVER_HOST=0.0.0.0
 SERVER_PORT=8000
 ```
 
-**⚠️ QUAN TRỌNG:**
+**QUAN TRỌNG:**
 
 - `CVAT_TOKEN` **bắt buộc** - Lấy từ CVAT: **Profile → Settings → API Token**
 - `WEBHOOK_SECRET` **khuyến nghị** - Để bảo vệ webhook khỏi các request không mong muốn
@@ -57,7 +56,7 @@ SERVER_PORT=8000
 
 ---
 
-## 🌐 Bước 2: Chạy Webhook Server
+## Bước 2: Chạy Webhook Server
 
 ### 2.1 Chạy server local
 
@@ -110,7 +109,7 @@ Nếu `cvat_api_configured` là `false`, kiểm tra lại `CVAT_TOKEN` trong `.e
 
 ---
 
-## 🌍 Bước 3: Expose Server ra Internet với ngrok
+## Bước 3: Expose Server ra Internet với ngrok
 
 CVAT cần gửi webhook đến server của bạn, nhưng server đang chạy local (`localhost:8000`). Bạn cần expose nó ra internet.
 
@@ -171,9 +170,7 @@ Từ output trên, bạn sẽ thấy dòng:
 Forwarding: https://abc123.ngrok.io -> http://localhost:8000
 ```
 
-**✅ URL webhook của bạn là:** `https://abc123.ngrok.io/webhook/cvat`
-
-**📌 GHI NHỚ URL NÀY** - Bạn sẽ dùng nó trong bước tiếp theo.
+**URL webhook của bạn là:** `https://abc123.ngrok.io/webhook/cvat`
 
 ### 3.4 ngrok Dashboard
 
@@ -185,7 +182,7 @@ Bạn có thể xem tất cả requests đến server qua ngrok dashboard:
 
 ---
 
-## 🔗 Bước 4: Cấu hình Webhook trong CVAT
+## Bước 4: Cấu hình Webhook trong CVAT
 
 ### 4.1 Đăng nhập CVAT
 
@@ -222,7 +219,7 @@ Click **Create Webhook** (hoặc **Add Webhook**)
 | **Events**       | ✅ **Job: Updated**                    | Chọn sự kiện job update               |
 | **Secret Key**   | `your_super_secure_secret_key_123`     | Giá trị của WEBHOOK_SECRET trong .env |
 
-**⚠️ QUAN TRỌNG:**
+**QUAN TRỌNG:**
 
 - URL **phải đúng chính xác** (bao gồm `https://` và `/webhook/cvat`)
 - Nếu bạn set `WEBHOOK_SECRET` trong `.env`, hãy điền cùng giá trị vào **Secret Key**
@@ -253,49 +250,7 @@ Sau khi test thành công, click **Save** (hoặc **Create**) để lưu webhook
 
 ---
 
-## 🎯 Bước 5: Workflow Hoạt Động
-
-Khi mọi thứ đã setup xong, workflow sẽ hoạt động như sau:
-
-```
-1. Annotator hoàn thành annotation trên 1 job
-   ↓
-2. Annotator/Reviewer chuyển job sang status "validation"
-   ↓
-3. CVAT tự động gửi webhook POST request đến:
-   https://abc123.ngrok.io/webhook/cvat
-   ↓
-4. LetmeQC server nhận request:
-   - Parse payload (job_id, status, assignee, ...)
-   - Kiểm tra event có phải "update:job" không
-   - Kiểm tra status có phải "validation" không
-   ↓
-5. Nếu status là "validation":
-   a) Fetch annotations từ CVAT API (/api/jobs/{id}/annotations)
-   b) Fetch labels mapping (/api/labels?job_id={id})
-   c) Parse dữ liệu thành Frame objects
-   d) Chạy QC checks với QCRulesEngine
-   ↓
-6. Xử lý kết quả:
-
-   🟢 NẾU KHÔNG CÓ LỖI (QC Pass):
-   - Server trả về: {"action": "approved"}
-   - Job giữ status "validation"
-   - Sẵn sàng cho review/approval
-
-   🔴 NẾU CÓ LỖI (QC Fail):
-   - Server tự động:
-     * Tạo issue trong CVAT cho mỗi frame có lỗi
-     * Comment của issue chứa: số lượng lỗi, loại lỗi, frame
-     * Gắn issue cho assignee của job
-   - Server tự động đổi status job về "annotation"
-   - Annotator nhận được issue và sửa lỗi
-   - Server trả về: {"action": "rejected", "errors": [...]}
-```
-
----
-
-## 🛡️ Webhook Security (Tùy chọn)
+## Webhook Security (Tùy chọn)
 
 ### Sử dụng WEBHOOK_SECRET
 
@@ -334,74 +289,9 @@ Ngrok tự động cung cấp HTTPS endpoint. Nếu bạn deploy server trên pr
 
 ---
 
-## 🔧 Custom Configuration
+## Troubleshooting
 
-### Thay đổi QC Thresholds
-
-Bạn có thể thay đổi thresholds trong `.env`:
-
-```ini
-# Diện tích bbox tối thiểu (pixels)
-MIN_BOX_AREA=150
-
-# Ngưỡng IoU cho overlap detection (0-1)
-IOU_THRESHOLD=0.90
-```
-
-Hoặc override trực tiếp trong code `app.py`:
-
-```python
-qc_engine = QCRulesEngine(
-    min_box_area=150,
-    iou_threshold=0.90
-)
-```
-
-### Thay đổi Required Attributes
-
-Trong `src/rules.py`, bạn có thể cấu hình các attribute bắt buộc:
-
-```python
-# Frame-level required tags
-self.required_frame_tags = ["weather", "time_of_day"]
-
-# Object-level required attributes
-self.required_obj_attrs = {
-    "car": ["occluded", "truncated"],
-    "pedestrian": ["occluded"]
-}
-```
-
-### Custom QC Rules
-
-Bạn có thể thêm custom rules vào `QCRulesEngine`:
-
-```python
-# Trong src/rules.py
-def _check_custom_rule(self, frame: Frame) -> List[Dict]:
-    errors = []
-    # Thêm logic kiểm tra custom
-    for box in frame.bboxes:
-        if box.label == "person" and box.ytl > frame.height * 0.8:
-            errors.append(self._format_error(
-                frame.name, box.id, "Person_Too_Low",
-                "Person bbox ở phần dưới 20% của ảnh"
-            ))
-    return errors
-
-# Gọi trong _check_single_frame
-def _check_single_frame(self, frame: Frame) -> List[Dict]:
-    frame_errors = []
-    # ... existing checks
-    frame_errors.extend(self._check_custom_rule(frame))
-    return frame_errors
-```
-
----
-
-## 🐛 Troubleshooting
-
-### ✅ Common Issues & Solutions
+### Common Issues & Solutions
 
 | Vấn đề                        | Nguyên nhân               | Giải pháp                                                                                             |
 | ----------------------------- | ------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -417,80 +307,16 @@ def _check_single_frame(self, frame: Frame) -> List[Dict]:
 |                               | CVAT API không trả về     | Thử access API thủ công: `curl -H "Authorization: Token YOUR_TOKEN" https://app.cvat.ai/api/jobs/123` |
 | **ModuleNotFoundError**       | Thiếu dependencies        | `pip install -r requirements.txt`                                                                     |
 
-### 🔍 Debug Webhook
+### Debug Webhook
 
-#### 1. Kiểm tra ngrok Inspector
-
-Mở: http://localhost:4040
-
-- Xem tất cả requests đến server
-- Kiểm tra request body, headers, response
-- Kiểm tra status code
-
-#### 2. Kiểm tra Server Logs
-
-Server in ra đầy đủ logs trên terminal:
-
-```
-2024-10-13 10:00:00 - INFO - 📥 Received webhook payload
-2024-10-13 10:00:00 - INFO - Job Update: ID=123 | Status=validation
-2024-10-13 10:00:01 - INFO - Fetching annotations for Job 123...
-2024-10-13 10:00:02 - INFO - Successfully parsed 10 frames
-2024-10-13 10:00:03 - INFO - QC Result: 0 errors found
-```
-
-Nếu có lỗi, sẽ thấy traceback đầy đủ.
-
-#### 3. Test Webhook Thủ Công
-
-Sử dụng curl để test webhook endpoint:
-
-```bash
-# Test ping event
-curl -X POST http://localhost:8000/webhook/cvat \
-  -H "Content-Type: application/json" \
-  -d '{"event": "ping"}'
-
-# Test update:job event
-curl -X POST http://localhost:8000/webhook/cvat \
-  -H "Content-Type: application/json" \
-  -H "X-CVAT-Webhook-Secret: your_super_secure_secret_key_123" \
-  -d '{
-    "event": "update:job",
-    "job": {
-      "id": 123,
-      "status": "validation",
-      "name": "test_job",
-      "assignee": {"id": 456}
-    }
-  }'
-```
-
-Expect response:
-
-```json
-{
-  "message": "QC passed - No errors found",
-  "job_id": 123,
-  "action": "approved",
-  ...
-}
-```
-
-#### 4. Kiểm tra CVAT API
-
-Thử fetch annotations thủ công:
-
-```bash
-curl -H "Authorization: Token YOUR_CVAT_TOKEN" \
-  https://app.cvat.ai/api/jobs/123/annotations | python -m json.tool
-```
-
-Nếu trả về JSON annotations, API đang hoạt động tốt.
+1. Kiểm tra ngrok Inspector
+2. Kiểm tra Server Logs
+3. Test Webhook thủ công
+4. Kiểm tra CVAT API
 
 ---
 
-## 📚 API Reference
+## API Reference
 
 ### LetmeQC Webhook Server Endpoints
 
@@ -518,14 +344,14 @@ Nếu trả về JSON annotations, API đang hoạt động tốt.
 **Authentication Header:**
 
 ```
-Authorization: Token YOUR_CVAT_TOKEN
+Authorization: Bearer YOUR_CVAT_TOKEN
 ```
 
 ---
 
-## 🏃 Example Workflow
+## Example Workflow
 
-### Scenario: Annotator Submit Job for Review
+Scenario: Annotator Submit Job for Review
 
 **1. Annotator hoàn thành annotation**
 
@@ -598,17 +424,15 @@ Authorization: Token YOUR_CVAT_TOKEN
 
 **6. Kết quả**
 
-- ✅ Annotator (ID: 789) nhận được 3 issues
-- ✅ Job 456 quay trở lại status "annotation"
-- ✅ Annotator có thể xem issues và sửa lỗi
+- Annotator (ID: 789) nhận được 3 issues
+- Job 456 quay trở lại status "annotation"
+- Annotator có thể xem issues và sửa lỗi
 
 ---
 
-## 🎉 Production Deployment
+## Production Deployment
 
-Khi deploy lên production (không dùng ngrok), bạn có thể:
-
-### Option 1: Deploy trên VPS (DigitalOcean, AWS, etc.)
+**Deploy trên VPS (DigitalOcean, AWS, etc.)**
 
 ```bash
 # SSH vào server
@@ -629,102 +453,3 @@ pip install -r requirements.txt
 # Hoặc chạy trực tiếp:
 uvicorn app:app --host 0.0.0.0 --port 8000
 ```
-
-### Option 2: Deploy với Docker
-
-**Tạo Dockerfile:**
-
-```dockerfile
-FROM python:3.11-slim
-
-WORKDIR /app
-
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
-
-COPY . .
-
-CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]
-```
-
-**Build & Run:**
-
-```bash
-docker build -t letmeqc .
-docker run -p 8000:8000 --env-file .env letmeqc
-```
-
-### Option 3: Deploy trên Kubernetes
-
-Tham khảo: https://fastapi.tiangolo.com/deployment/
-
----
-
-## 📖 Tài liệu liên quan
-
-- [README.md](README.md) - Hướng dẫn tổng quan về dự án
-- [CVAT Documentation](https://docs.cvat.ai/en/latest/)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [ngrok Documentation](https://ngrok.com/docs)
-
----
-
-## 💡 Tips & Best Practices
-
-### 1. Sử dụng ngrok hiệu quả
-
-- **Free plan**: Có giới hạn requests (40 connections/minute)
-- **Paid plan**: Không giới hạn, custom subdomains
-- **Reconnect**: ngrok free tunnel thay đổi URL sau mỗi lần restart
-- **Alternative**: Sử dụng [localtunnel](https://localtunnel.github.io/www/) hoặc [serveo](https://serveo.net/)
-
-### 2. Monitor Webhook
-
-- Sử dụng **ngrok inspector** (http://localhost:4040) để debug
-- Log tất cả webhook requests đến file:
-  ```python
-  # Trong app.py
-  import logging
-  logging.basicConfig(
-      level=logging.INFO,
-      format="%(asctime)s - %(levelname)s - %(message)s",
-      handlers=[
-          logging.FileHandler("webhook.log"),
-          logging.StreamHandler()
-      ]
-  )
-  ```
-
-### 3. Handling Large Jobs
-
-- Job có nhiều frames (>1000) có thể khiến QC chậm
-- Consider:
-  - Tăng timeout cho requests
-  - Chạy QC trên subset frames
-  - Optimize QC rules
-
-### 4. Custom Error Messages
-
-Bạn có thể custom message trong `src/rules.py`:
-
-```python
-def _format_error(self, frame_name: str, obj_id: any, error_type: str, message: str) -> Dict:
-    return {
-        "Frame": frame_name,
-        "Object_ID": obj_id,
-        "Error_Type": error_type,
-        "Message": message,
-        "Severity": "high" if error_type in ["Bbox_Out_Of_Bounds"] else "medium",
-        "Suggestion": self._get_suggestion(error_type)
-    }
-```
-
----
-
-## 🚨 Warning & Notes
-
-1. **ngrok Free Tunnel**: URL sẽ thay đổi sau mỗi lần restart. Cần cập nhật webhook URL trong CVAT.
-2. **CVAT Token Security**: Không bao giờ commit `CVAT_TOKEN` vào repository. Sử dụng `.gitignore`.
-3. **Rate Limiting**: CVAT API có rate limit. Nếu có nhiều jobs, consider thêm delay giữa các request.
-4. **Error Handling**: Server đã handle hầu hết errors, nhưng vẫn có thể có edge cases.
-5. **Webhook Payload**: CVAT có thể gửi nhiều loại event. Server chỉ xử lý `update:job` và `ping`.

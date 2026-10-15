@@ -4,23 +4,27 @@
 
 ---
 
-## 🎯 Tính năng chính
+## Tính năng chính
 
-### ✅ Kiểm tra Bounding Box
+### Kiểm tra Bounding Box
+
 - **Out of Bounds**: Phát hiện bbox vượt ngoài kích thước frame/ảnh
 - **Minimum Size**: Phát hiện bbox có diện tích quá nhỏ (configurable)
 - **Overlap Detection**: Phát hiện các bbox cùng class overlap quá mức (dựa trên IoU threshold)
 
-### ✅ Kiểm tra Polygon/Segmentation
+### Kiểm tra Polygon/Segmentation
+
 - **Self-Intersection**: Phát hiện polygon bị vặn chéo hoặc tự cắt các cạnh
 - **Mask Out of Box**: Phát hiện mask (polygon) tràn ra ngoài bounding box tương ứng
 - **Geometry Validation**: Kiểm tra tính hợp lệ của hình học polygon
 
-### ✅ Kiểm tra Attributes
+### Kiểm tra Attributes
+
 - **Required Frame Tags**: Kiểm tra frame có thiếu tag bắt buộc
 - **Required Object Attributes**: Kiểm tra object có thiếu attribute bắt buộc
 
-### ✅ Tích hợp CVAT
+### Tích hợp CVAT
+
 - **Webhook Server**: Nhận sự kiện từ CVAT và tự động trigger QC
 - **Auto Issue Creation**: Tự động tạo issue trong CVAT khi phát hiện lỗi
 - **Auto Status Update**: Tự động quay lại status "annotation" khi QC fail
@@ -28,106 +32,54 @@
 
 ---
 
-## 📁 Cấu trúc dự án
+## Bắt đầu nhanh
 
-```
-LetmeQC/
-├── app.py                      # FastAPI entry point
-├── .env                        # Environment variables (không commit)
-├── .env.example                # Mẫu file .env
-├── requirements.txt            # Python dependencies
-├── pyproject.toml              # Project configuration
-├── Dockerfile                  # Production Docker image
-├── docker-compose.yml          # Docker Compose configuration
-├── README.md                   # Documentation (file này)
-├── CVAT_WEBHOOK_GUIDE.md       # Hướng dẫn setup webhook
-├── src/
-│   ├── __init__.py
-│   ├── app/
-│   │   └── main.py            # FastAPI app and routes
-│   ├── clients/
-│   │   └── cvat_client.py     # CVAT API client
-│   ├── config/
-│   │   ├── __init__.py
-│   │   ├── settings.py        # Pydantic Settings configuration
-│   │   └── logging_config.py  # Logging configuration
-│   ├── handlers/
-│   │   └── webhook_handlers.py # Webhook request handlers
-│   ├── services/
-│   │   └── qc_service.py      # QC processing service
-│   ├── models.py               # Data models (Bbox, Polygon, Frame, FrameTag)
-│   ├── parser.py               # Parser cho CVAT API JSON
-│   ├── rules.py                # QC Rules Engine
-│   ├── reports.py              # QC Report generation
-│   ├── utils.py                # Utility functions
-│   ├── error_templates.py      # Error message templates
-│   ├── exceptions.py           # Custom exception hierarchy
-│   └── monitoring.py           # Monitoring and metrics
-├── data/                       # Dữ liệu test & sample
-│   └── test_cases/             # Test cases với các lỗi mẫu
-└── venv/                       # Python virtual environment
-```
-
----
-
-## ⚡ Bắt đầu nhanh
-
-### 📋 Điều kiện tiền đề
-
-- Python 3.10+
-- pip 23.0+
-- Git
-
-### 💻 Cài đặt
-
-#### 1. Clone repository
+### 1. Clone repository
 
 ```bash
 git clone <repository-url>
 cd LetmeQC
 ```
 
-#### 2. Tạo virtual environment
+### 2. Tạo virtual environment
 
 ```bash
 python -m venv venv
 ```
 
-#### 3. Kích hoạt virtual environment
+### 3. Kích hoạt virtual environment
 
 **Windows (CMD/PowerShell):**
+
 ```bash
 .\venv\Scripts\activate
 ```
 
 **Linux/Mac:**
+
 ```bash
 source venv/bin/activate
 ```
 
-#### 4. Cài đặt dependencies
+### 4. Cài đặt dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
-#### 5. Verify installation
+### 5. Verify installation
 
 ```bash
-python -c "from src.app.main import app; print('✅ Installation successful')"
+python -c "from src.app.main import app; print('Installation successful')"
 ```
 
 ---
 
-## 🚀 Sử dụng
+## Sử dụng
 
-LetmeQC hoạt động như một **web service** nhận webhook từ CVAT.
+LetmeQC hoạt động như một **web service** nhận webhook từ CVAT
 
-### 🌐 Chế độ: Webhook Server (Online Mode)
-
-Chạy server nhận webhook từ CVAT và tự động trigger QC.
-
-#### 1. Cấu hình môi trường
+### 1. Cấu hình môi trường
 
 Copy `.env.example` sang `.env` và chỉnh sửa:
 
@@ -168,21 +120,23 @@ JSON_LOGGING=false
 
 **Lưu ý:** Lấy `CVAT_TOKEN` từ CVAT: **Profile** → **Settings** → **API Token**
 
-#### 2. Chạy webhook server
+### 2. Chạy webhook server
 
 **Phương thức 1: Chạy trực tiếp**
+
 ```bash
 python app.py
 ```
 
 **Phương thức 2: Chạy với uvicorn**
+
 ```bash
 uvicorn app:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 Server sẽ chạy tại: `http://0.0.0.0:8000`
 
-#### 3. Test server
+### 3. Test server
 
 ```bash
 # Health check
@@ -198,7 +152,7 @@ curl http://localhost:8000/config
 curl http://localhost:8000/metrics
 ```
 
-#### 4. Expose server ra internet với ngrok
+### 4. Expose server ra internet với ngrok
 
 Cài đặt ngrok: https://ngrok.com/download
 
@@ -208,15 +162,16 @@ ngrok http 8000
 ```
 
 Kết quả sẽ hiển thị như:
+
 ```
 Forwarding: https://abc123.ngrok.io -> http://localhost:8000
 ```
 
-**✅ URL webhook của bạn:** `https://abc123.ngrok.io/webhook/cvat`
+**URL webhook của bạn:** `https://abc123.ngrok.io/webhook/cvat`
 
 ---
 
-## 🔍 Chi tiết QC Rules Engine
+## Chi tiết QC Rules Engine
 
 ### Cấu hình QCRulesEngine
 
@@ -237,27 +192,28 @@ qc_engine = QCRulesEngine(
 
 ### Các loại lỗi được phát hiện
 
-| Error Type | Severity | Mô tả | Giải pháp |
-|------------|----------|-------|-----------|
-| `Bbox_Out_Of_Bounds` | HIGH | Bbox vượt ngoài kích thước frame | Di chuyển bbox vào trong frame |
-| `Bbox_Too_Small` | HIGH | Bbox có diện tích < min_box_area | Vẽ lại bbox to hơn |
-| `Bbox_Overlap` | MEDIUM | Hai bbox cùng class overlap > iou_threshold | Xóa bỏ bbox overlap hoặc merge |
-| `Polygon_Self_Intersect` | HIGH | Polygon bị vặn chéo/ tự cắt | Vẽ lại polygon đúng chuẩn |
-| `Mask_Out_Of_Box` | MEDIUM | Polygon tràn ra ngoài bbox tương ứng | Đảm bảo polygon nằm trong bbox |
-| `Duplicate_Objects` | HIGH | Hai objects trùng lặp hoàn toàn | Xóa bớt các bản sao |
-| `Missing_Required_Attributes` | HIGH | Thiếu attribute bắt buộc | Thêm attribute còn thiếu |
-| `Extreme_Aspect_Ratio` | LOW | Tỷ lệ khung hình bất thường | Kiểm tra lại object |
-| `Label_Consistency` | MEDIUM | Class con nằm trong class cha | Kiểm tra lại nhãn |
+| Error Type                    | Severity | Mô tả                                       | Giải pháp                      |
+| ----------------------------- | -------- | ------------------------------------------- | ------------------------------ |
+| `Bbox_Out_Of_Bounds`          | HIGH     | Bbox vượt ngoài kích thước frame            | Di chuyển bbox vào trong frame |
+| `Bbox_Too_Small`              | HIGH     | Bbox có diện tích < min_box_area            | Vẽ lại bbox to hơn             |
+| `Bbox_Overlap`                | MEDIUM   | Hai bbox cùng class overlap > iou_threshold | Xóa bỏ bbox overlap hoặc merge |
+| `Polygon_Self_Intersect`      | HIGH     | Polygon bị vặn chéo/ tự cắt                 | Vẽ lại polygon đúng chuẩn      |
+| `Mask_Out_Of_Box`             | MEDIUM   | Polygon tràn ra ngoài bbox tương ứng        | Đảm bảo polygon nằm trong bbox |
+| `Duplicate_Objects`           | HIGH     | Hai objects trùng lặp hoàn toàn             | Xóa bớt các bản sao            |
+| `Missing_Required_Attributes` | HIGH     | Thiếu attribute bắt buộc                    | Thêm attribute còn thiếu       |
+| `Extreme_Aspect_Ratio`        | LOW      | Tỷ lệ khung hình bất thường                 | Kiểm tra lại object            |
+| `Label_Consistency`           | MEDIUM   | Class con nằm trong class cha               | Kiểm tra lại nhãn              |
 
 ---
 
-## 📊 Output Format & Reports
+## Output Format & Reports
 
 ### Webhook Response
 
 Khi nhận webhook từ CVAT, server trả về:
 
 **Nếu QC Pass:**
+
 ```json
 {
   "message": "QC passed - No errors found",
@@ -273,6 +229,7 @@ Khi nhận webhook từ CVAT, server trả về:
 ```
 
 **Nếu QC Fail:**
+
 ```json
 {
   "message": "QC failed - 5 errors found",
@@ -334,85 +291,7 @@ Mỗi báo cáo QC được lưu trong thư mục `reports/` với cấu trúc:
 
 ---
 
-## 📖 Programmatic Usage
-
-Bạn có thể integrate LetmeQC trực tiếp vào code Python:
-
-```python
-from src.parser import parse_cvat_api_json
-from src.rules import QCRulesEngine
-from src.clients.cvat_client import CVATAPI
-
-# Khởi tạo CVAT API client
-cvat_api = CVATAPI(
-    base_url="https://app.cvat.ai/api",
-    token="your_token",
-    org_slug="your_org"
-)
-
-# Fetch annotations từ CVAT
-job_id = 123
-raw_data = cvat_api.get_job_annotations(job_id)
-labels_mapping = cvat_api.get_job_labels(job_id)
-
-# Parse annotations
-frames = parse_cvat_api_json(raw_data, labels_mapping)
-
-# Run QC checks
-qc_engine = QCRulesEngine(
-    min_box_area=100,
-    iou_threshold=0.95
-)
-errors = qc_engine.run_qc_check(frames)
-
-# Xử lý kết quả
-if errors:
-    print(f"❌ Found {len(errors)} errors")
-    for error in errors:
-        print(f"  - Frame {error['Frame']}: {error['Error_Type']} - {error['Message']}")
-else:
-    print("✅ No errors found!")
-```
-
----
-
-## 🛠️ Development
-
-### Running Tests
-
-```bash
-# Cài dev dependencies
-pip install -r requirements-dev.txt
-
-# Chạy tests
-pytest
-
-# Chạy tests với coverage
-pytest --cov=src --cov-report=term-missing
-```
-
-### Code Formatting
-
-```bash
-# Cài black
-pip install black
-
-# Format code
-black src/
-
-# Hoặc tự động format khi commit (see pyproject.toml)
-```
-
-### Type Checking
-
-```bash
-pip install mypy
-mypy src/
-```
-
----
-
-## 📚 CVAT Integration Guide
+## CVAT Integration Guide
 
 Xem chi tiết trong file: **[CVAT_WEBHOOK_GUIDE.md](CVAT_WEBHOOK_GUIDE.md)**
 
@@ -430,81 +309,36 @@ Xem chi tiết trong file: **[CVAT_WEBHOOK_GUIDE.md](CVAT_WEBHOOK_GUIDE.md)**
 ### Automatic Actions
 
 Khi QC fail:
-- ✅ Tự động tạo issue trong CVAT cho mỗi frame có lỗi
-- ✅ Tự động quay lại status "annotation" để annotator sửa
-- ✅ Gửi thông báo chi tiết về lỗi
-- ✅ Lưu báo cáo đầy đủ trong thư mục `reports/`
+
+- Tự động tạo issue trong CVAT cho mỗi frame có lỗi
+- Tự động quay lại status "annotation" với state "rejected" để annotator sửa
+- Gửi thông báo báo cáo chi tiết về lỗi
 
 ---
 
-## 🐛 Troubleshooting
+## Environment Variables
 
-### Common Issues
-
-| Vấn đề | Giải pháp |
-|--------|-----------|
-| `ModuleNotFoundError: shapely` | `pip install shapely` |
-| `ModuleNotFoundError: pydantic-settings` | `pip install pydantic-settings` |
-| `AttributeError: 'NoneType' object has no attribute 'get'` | Kiểm tra payload webhook có trường "job" không |
-| `ConnectionError: CVAT API` | Kiểm tra CVAT_TOKEN và CVAT_API_URL |
-| `ngrok not found` | Cài đặt ngrok: https://ngrok.com/download |
-| Port 8000 đã được sử dụng | Đổi SERVER_PORT trong .env |
-| Webhook secret mismatch | Kiểm tra WEBHOOK_SECRET trong .env và header |
-
-### Debug Webhook
-
-1. **Check ngrok inspector**: http://localhost:4040
-2. **Xem logs server**: Server in ra console đầy đủ logs
-3. **Test với curl**:
-   ```bash
-   curl -X POST http://localhost:8000/webhook/cvat \
-     -H "Content-Type: application/json" \
-     -H "X-CVAT-Webhook-Secret: your_secret" \
-     -d '{"event": "ping"}'
-   ```
-4. **Test webhook event**:
-   ```bash
-   curl -X POST http://localhost:8000/webhook/cvat \
-     -H "Content-Type: application/json" \
-     -H "X-CVAT-Webhook-Secret: your_secret" \
-     -d '{
-       "event": "update:job",
-       "job": {
-         "id": 123,
-         "name": "test_job",
-         "status": "validation",
-         "assignee": {"id": 456}
-       }
-     }'
-   ```
+| Biên                      | Mặc định                  | Bắt buộc | Mô tả                               |
+| ------------------------- | ------------------------- | -------- | ----------------------------------- |
+| `CVAT_API_URL`            | `https://app.cvat.ai/api` | ✅       | CVAT API base URL                   |
+| `CVAT_TOKEN`              | ``                        | ✅       | CVAT API token                      |
+| `CVAT_ORG_SLUG`           | `None`                    | ❌       | CVAT organization slug              |
+| `WEBHOOK_SECRET`          | `None`                    | ❌       | Secret key cho webhook verification |
+| `MIN_BOX_AREA`            | `100`                     | ❌       | Diện tích bbox tối thiểu            |
+| `IOU_THRESHOLD`           | `0.95`                    | ❌       | Ngưỡng IoU cho overlap              |
+| `DUPLICATE_IOU_THRESHOLD` | `0.98`                    | ❌       | Ngưỡng IoU cho duplicate            |
+| `MIN_POLYGON_POINTS`      | `3`                       | ❌       | Số điểm polygon tối thiểu           |
+| `MAX_ASPECT_RATIO`        | `10.0`                    | ❌       | Tỷ lệ khung hình max                |
+| `MIN_ASPECT_RATIO`        | `0.1`                     | ❌       | Tỷ lệ khung hình min                |
+| `MASK_TOLERANCE`          | `2.0`                     | ❌       | Độ dung sai mask (pixels)           |
+| `BBOX_TOLERANCE`          | `2.0`                     | ❌       | Độ dung sai bbox (pixels)           |
+| `SERVER_HOST`             | `0.0.0.0`                 | ❌       | Server host                         |
+| `SERVER_PORT`             | `8000`                    | ❌       | Server port                         |
+| `JSON_LOGGING`            | `false`                   | ❌       | Bật JSON logging format             |
 
 ---
 
-## 📝 Environment Variables
-
-| Biên | Mặc định | Bắt buộc | Mô tả |
-|------|----------|----------|-------|
-| `CVAT_API_URL` | `https://app.cvat.ai/api` | ✅ | CVAT API base URL |
-| `CVAT_TOKEN` | `` | ✅ | CVAT API token |
-| `CVAT_ORG_SLUG` | `None` | ❌ | CVAT organization slug |
-| `WEBHOOK_SECRET` | `None` | ❌ | Secret key cho webhook verification |
-| `MIN_BOX_AREA` | `100` | ❌ | Diện tích bbox tối thiểu |
-| `IOU_THRESHOLD` | `0.95` | ❌ | Ngưỡng IoU cho overlap |
-| `DUPLICATE_IOU_THRESHOLD` | `0.98` | ❌ | Ngưỡng IoU cho duplicate |
-| `MIN_POLYGON_POINTS` | `3` | ❌ | Số điểm polygon tối thiểu |
-| `MAX_ASPECT_RATIO` | `10.0` | ❌ | Tỷ lệ khung hình max |
-| `MIN_ASPECT_RATIO` | `0.1` | ❌ | Tỷ lệ khung hình min |
-| `MASK_TOLERANCE` | `2.0` | ❌ | Độ dung sai mask (pixels) |
-| `BBOX_TOLERANCE` | `2.0` | ❌ | Độ dung sai bbox (pixels) |
-| `SERVER_HOST` | `0.0.0.0` | ❌ | Server host |
-| `SERVER_PORT` | `8000` | ❌ | Server port |
-| `JSON_LOGGING` | `false` | ❌ | Bật JSON logging format |
-
----
-
-## 🎓 Ví dụ Workflow
-
-### Workflow: Automatic QC with Webhook
+## Workflow: Automatic QC with Webhook
 
 ```
 1. Annotator hoàn thành annotation → Chuyển job sang "validation"
@@ -524,7 +358,7 @@ Khi QC fail:
 
 ---
 
-## 📊 Monitoring & Metrics
+## Monitoring & Metrics
 
 Hệ thống cung cấp endpoints cho monitoring:
 
@@ -544,51 +378,3 @@ Hệ thống cung cấp endpoints cho monitoring:
 - `qc_errors_total`: Tổng errors phát hiện
 
 ---
-
-## 📚 API Documentation
-
-Full API documentation có sẵn tại:
-- **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
-
-### Endpoints
-
-| Method | Endpoint | Mô tả |
-|--------|----------|-------|
-| POST | `/webhook/cvat` | CVAT webhook endpoint |
-| GET | `/` | Health check và service info |
-| GET | `/health` | Health check chi tiết |
-| GET | `/metrics` | Application metrics |
-| GET | `/config` | Current configuration |
-
----
-
-## 📄 Tài liệu liên quan
-
-- [CVAT Documentation](https://docs.cvat.ai/)
-- [FastAPI Documentation](https://fastapi.tiangolo.com/)
-- [ngrok Documentation](https://ngrok.com/docs)
-
----
-
-## 🤝 Contributing
-
-1. Fork repository
-2. Tạo branch: `git checkout -b feature/new-feature`
-3. Commit changes: `git commit -m 'Add new feature'`
-4. Push: `git push origin feature/new-feature`
-5. Tạo Pull Request
-
----
-
-## 📜 License
-
-Dự án thuộc sở hữu của VinAI. Vui lòng liên hệ team trước khi sử dụng cho mục đích thương mại.
-
----
-
-## 💬 Contact
-
-- **Internal Documentation**: Xem tài liệu nội bộ VinAI
-- **Team**: Liên hệ với project maintainers
-- **Issues**: Báo cáo lỗi qua internal ticket system
