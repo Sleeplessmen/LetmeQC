@@ -436,7 +436,7 @@ class QCService:
                                 error_type=error.get('type'),
                                 error_details=error,
                                 severity=error.get('severity', 'medium'),
-                                rule_id=error.get('rule_id')
+                                rule_code=error.get('rule_code')
                             )
                     else:
                         self._create_qc_result(
@@ -481,7 +481,7 @@ class QCService:
     def _create_qc_result(self, job_id: int, frame_index: int, annotation_id: Optional[int],
                          qc_status: QCStatus, error_type: Optional[str] = None,
                          error_details: Optional[Dict] = None, severity: str = "medium",
-                         rule_id: Optional[int] = None) -> None:
+                         rule_code: Optional[str] = None) -> None:
         """Helper to create QC result."""
         self.db_client.create_qc_result(
             job_id=job_id,
@@ -491,7 +491,7 @@ class QCService:
             error_type=error_type,
             error_details=error_details,
             severity=severity,
-            rule_id=rule_id
+            rule_code=rule_code
         )
     
     def _parse_annotations_to_frames(self, annotations_data: Dict) -> List[Frame]:
@@ -562,7 +562,7 @@ class QCService:
                 "error_type": r.error_type,
                 "error_details": r.error_details,
                 "severity": r.severity,
-                "rule_id": r.rule_id,
+                "rule_code": r.rule_code,
                 "created_at": r.created_at.isoformat()
             }
             for r in results
@@ -598,7 +598,7 @@ class QCService:
                 "error_type": r.error_type,
                 "error_details": r.error_details,
                 "severity": r.severity,
-                "rule_id": r.rule_id,
+                "rule_code": r.rule_code,
                 "created_at": r.created_at.isoformat()
             }
             for r in results
@@ -911,7 +911,7 @@ class TestIssueService:
         service = IssueService(test_db)
         issue_data = IssueCreate(
             frame_index=0,
-            position={"x": 10, "y": 20, "width": 100, "height": 100},
+            position=[10.0, 20.0, 100.0, 100.0],
             message="Test issue",
             severity="high"
         )
@@ -927,12 +927,12 @@ class TestIssueService:
         service = IssueService(test_db)
         service.create_issue(job.id, IssueCreate(
             frame_index=0,
-            position={},
+            position=[0.0, 0.0, 0.0, 0.0],
             message="Issue 1"
         ))
         service.create_issue(job.id, IssueCreate(
             frame_index=1,
-            position={},
+            position=[0.0, 0.0, 0.0, 0.0],
             message="Issue 2"
         ))
         

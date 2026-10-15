@@ -55,6 +55,7 @@ LetmeQC/
 │   │   ├── job_service.py        # NEW
 │   │   └── issue_service.py      # NEW
 │   ├── models/
+│   │   ├── enums.py              # NEW
 │   │   ├── frame.py              # Existing
 │   │   ├── report.py             # Existing
 │   │   ├── job.py                # NEW
@@ -69,6 +70,7 @@ LetmeQC/
 │   │   ├── qc_result.py
 │   │   ├── issue.py
 │   │   └── labeler_metrics.py
+│   ├── session.py               # NEW
 │   ├── repositories/
 │   └── migrations/
 │

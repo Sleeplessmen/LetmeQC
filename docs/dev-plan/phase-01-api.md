@@ -152,7 +152,7 @@ class QCResultBase(BaseModel):
     error_type: Optional[str] = Field(None, description="Error type", max_length=100)
     error_details: Optional[Dict[str, Any]] = Field(None, description="Error details")
     severity: Severity = Field(default=Severity.MEDIUM, description="Error severity")
-    rule_id: Optional[int] = Field(None, description="Rule ID that failed", ge=1)
+    rule_code: Optional[str] = Field(None, description="Rule code that failed")
 
 
 class QCResultCreate(QCResultBase):
@@ -678,7 +678,7 @@ async def create_issue(
     **Request Body:**
     - `cvat_issue_id`: Optional. CVAT issue ID
     - `frame_index`: Required. Frame index
-    - `position`: Required. Position object {x, y, width, height}
+    - `position`: Required. Position as [x1, y1, x2, y2] array
     - `message`: Required. Issue message
     - `assignee_id`: Optional. CVAT user ID
     - `severity`: Optional. Severity (default: medium)
@@ -971,7 +971,8 @@ class TestJobs:
     def test_list_jobs_empty(self, client):
         response = client.get("/api/v1/jobs")
         assert response.status_code == 200
-        assert response.json() == []
+        assert response.json()["data"] == []
+        assert response.json()["total_count"] == 0
     
     def test_create_job(self, client):
         response = client.post("/api/v1/jobs", json={
@@ -1088,7 +1089,7 @@ class TestIssues:
         # Create an issue
         response = client.post(f"/api/v1/jobs/{job_id}/issues", json={
             "frame_index": 0,
-            "position": {"x": 10, "y": 20, "width": 100, "height": 100},
+            "position": [10.0, 20.0, 100.0, 100.0],
             "message": "Test issue",
             "severity": "medium"
         })
@@ -1106,7 +1107,7 @@ class TestIssues:
         
         client.post(f"/api/v1/jobs/{job_id}/issues", json={
             "frame_index": 0,
-            "position": {"x": 10, "y": 20, "width": 100, "height": 100},
+            "position": [10.0, 20.0, 100.0, 100.0],
             "message": "Test issue",
         })
         
@@ -1125,7 +1126,7 @@ class TestIssues:
         
         issue_response = client.post(f"/api/v1/jobs/{job_id}/issues", json={
             "frame_index": 0,
-            "position": {"x": 10, "y": 20, "width": 100, "height": 100},
+            "position": [10.0, 20.0, 100.0, 100.0],
             "message": "Test issue",
         })
         issue_id = issue_response.json()["id"]

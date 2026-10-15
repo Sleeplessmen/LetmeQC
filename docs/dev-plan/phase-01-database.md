@@ -32,14 +32,14 @@ CREATE TABLE jobs (
     id SERIAL PRIMARY KEY,
     cvat_job_id INTEGER UNIQUE NOT NULL,
     cvat_project_id INTEGER,
-    cvat_task_id INTEGER,  -- CVAT task ID (if applicable)
+    cvat_task_id INTEGER,  # CVAT task ID (if applicable)
     name VARCHAR(255) NOT NULL,
-    status VARCHAR(50) NOT NULL,  -- pending, processing, completed, failed
-    stage VARCHAR(50) NOT NULL,   -- annotation, validation, accepted, rejected
+    status VARCHAR(50) NOT NULL,  # pending, processing, completed, failed
+    stage VARCHAR(50) NOT NULL,   # annotation, validation, accepted, rejected
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
-    config JSONB,  -- QC configuration for this job
-    metadata JSONB  -- Additional job metadata from CVAT
+    config JSONB,  # QC configuration for this job
+    metadata JSONB  # Additional job metadata from CVAT
 );
 
 CREATE INDEX idx_jobs_cvat_id ON jobs(cvat_job_id);
@@ -55,12 +55,12 @@ CREATE TABLE qc_results (
     id SERIAL PRIMARY KEY,
     job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
     frame_index INTEGER NOT NULL,
-    annotation_id INTEGER,  -- CVAT annotation ID
-    qc_status VARCHAR(20) NOT NULL,  -- pass, fail, warning
+    annotation_id INTEGER,  # CVAT annotation ID
+    qc_status VARCHAR(20) NOT NULL,  # pass, fail, warning
     error_type VARCHAR(100),
     error_details JSONB,
-    severity VARCHAR(20) DEFAULT 'medium',  -- low, medium, high, critical
-    rule_code VARCHAR(100),  -- Rule code (e.g., 'bbox_min_area', 'overlap') - String for easier extensibility
+    severity VARCHAR(20) DEFAULT 'medium',  # low, medium, high, critical
+    rule_code VARCHAR(100),  # Rule code (e.g., 'bbox_min_area', 'overlap') - String for easier extensibility
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -81,10 +81,10 @@ CREATE TABLE issues (
     cvat_issue_id INTEGER UNIQUE,
     job_id INTEGER REFERENCES jobs(id) ON DELETE CASCADE,
     frame_index INTEGER NOT NULL,
-    position JSONB NOT NULL,  -- [x1, y1, x2, y2] - matching CVAT API format
+    position JSONB NOT NULL,  # [x1, y1, x2, y2] - matching CVAT API format
     message TEXT NOT NULL,
-    assignee_id INTEGER,  -- CVAT user ID
-    status VARCHAR(50) DEFAULT 'open',  -- open, resolved, rejected
+    assignee_id INTEGER,  # CVAT user ID
+    status VARCHAR(50) DEFAULT 'open',  # open, resolved, rejected
     severity VARCHAR(20) DEFAULT 'medium',
     created_at TIMESTAMP DEFAULT NOW(),
     resolved_at TIMESTAMP,
@@ -102,9 +102,9 @@ Stores performance metrics for each labeler (aggregated by project, not job)
 ```sql
 CREATE TABLE labeler_metrics (
     id SERIAL PRIMARY KEY,
-    labeler_id INTEGER NOT NULL,  -- CVAT user ID
+    labeler_id INTEGER NOT NULL,  # CVAT user ID
     labeler_name VARCHAR(255),
-    cvat_project_id INTEGER,  -- Track by project instead of job to avoid redundancy
+    cvat_project_id INTEGER,  # Track by project instead of job to avoid redundancy
     total_annotations INTEGER DEFAULT 0,
     qc_passed INTEGER DEFAULT 0,
     qc_failed INTEGER DEFAULT 0,
@@ -148,7 +148,7 @@ class Job(Base):
     id = Column(Integer, primary_key=True, index=True)
     cvat_job_id = Column(Integer, unique=True, nullable=False, index=True)
     cvat_project_id = Column(Integer, index=True)
-    cvat_task_id = Column(Integer, index=True)  -- CVAT task ID (if applicable)
+    cvat_task_id = Column(Integer, index=True)  # CVAT task ID (if applicable)
     name = Column(String(255), nullable=False)
     status = Column(String(50), nullable=False, index=True)
     stage = Column(String(50), nullable=False, index=True)
@@ -183,7 +183,7 @@ class QCResult(Base):
     error_type = Column(String(100))
     error_details = Column(JSON)
     severity = Column(String(20), default="medium")
-    rule_code = Column(String(100))  -- Rule code as string for easier extensibility
+    rule_code = Column(String(100))  # Rule code as string for easier extensibility
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -212,7 +212,7 @@ class Issue(Base):
     cvat_issue_id = Column(Integer, unique=True)
     job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
     frame_index = Column(Integer, nullable=False, index=True)
-    position = Column(JSON, nullable=False)  -- Stores as [x1, y1, x2, y2] to match CVAT API
+    position = Column(JSON, nullable=False)  # Stores as [x1, y1, x2, y2] to match CVAT API
     message = Column(String, nullable=False)
     assignee_id = Column(Integer)
     status = Column(String(50), default="open", index=True)
@@ -240,7 +240,7 @@ class LabelerMetrics(Base):
     id = Column(Integer, primary_key=True, index=True)
     labeler_id = Column(Integer, nullable=False, index=True)
     labeler_name = Column(String(255))
-    job_id = Column(Integer, ForeignKey("jobs.id"), nullable=False, index=True)
+    cvat_project_id = Column(Integer, index=True)
     total_annotations = Column(Integer, default=0)
     qc_passed = Column(Integer, default=0)
     qc_failed = Column(Integer, default=0)
@@ -249,9 +249,6 @@ class LabelerMetrics(Base):
     last_activity = Column(DateTime)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
-    
-    # Relationships
-    job = relationship("Job", back_populates="labeler_metrics")
     
     # Unique constraint
     __table_args__ = (
@@ -617,15 +614,15 @@ class DatabaseClient:
     # ==================== LABELER METRICS OPERATIONS ====================
     
     def create_or_update_labeler_metrics(self, labeler_id: int, labeler_name: str,
-                                         job_id: int, total_annotations: int,
+                                         cvat_project_id: int, total_annotations: int,
                                          qc_passed: int, qc_failed: int,
                                          total_qc_errors: int) -> LabelerMetrics:
-        """Create or update labeler metrics for a job."""
+        """Create or update labeler metrics for a project."""
         db = self.get_db_session()
         try:
             metrics = db.query(LabelerMetrics).filter(
                 LabelerMetrics.labeler_id == labeler_id,
-                LabelerMetrics.job_id == job_id
+                LabelerMetrics.cvat_project_id == cvat_project_id
             ).first()
             
             avg_score = (qc_passed / total_annotations * 100) if total_annotations > 0 else 0
@@ -642,7 +639,7 @@ class DatabaseClient:
                 metrics = LabelerMetrics(
                     labeler_id=labeler_id,
                     labeler_name=labeler_name,
-                    job_id=job_id,
+                    cvat_project_id=cvat_project_id,
                     total_annotations=total_annotations,
                     qc_passed=qc_passed,
                     qc_failed=qc_failed,
@@ -819,7 +816,7 @@ def test_create_issue(test_db):
         cvat_issue_id=1,
         job_id=job.id,
         frame_index=0,
-        position={"x": 10, "y": 20, "width": 100, "height": 100},
+        position=[10.0, 20.0, 100.0, 100.0],
         message="Test issue",
         severity="high"
     )
