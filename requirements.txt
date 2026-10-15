@@ -15,6 +15,10 @@ python-dotenv==1.0.0
 
 # Data validation and settings
 pydantic==2.5.3
+pydantic-settings==2.1.0
+
+# Geometry operations
+shapely==2.0.2
 
 # Logging
 # (included in standard library)
