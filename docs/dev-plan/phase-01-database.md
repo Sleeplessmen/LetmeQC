@@ -32,6 +32,7 @@ CREATE TABLE jobs (
     id SERIAL PRIMARY KEY,
     cvat_job_id INTEGER UNIQUE NOT NULL,
     cvat_project_id INTEGER,
+    cvat_task_id INTEGER,  -- CVAT task ID (if applicable)
     name VARCHAR(255) NOT NULL,
     status VARCHAR(50) NOT NULL,  -- pending, processing, completed, failed
     stage VARCHAR(50) NOT NULL,   -- annotation, validation, accepted, rejected
@@ -59,7 +60,7 @@ CREATE TABLE qc_results (
     error_type VARCHAR(100),
     error_details JSONB,
     severity VARCHAR(20) DEFAULT 'medium',  -- low, medium, high, critical
-    rule_id INTEGER REFERENCES qc_rules(id),  -- Reference to rule that failed
+    rule_code VARCHAR(100),  -- Rule code (e.g., 'bbox_min_area', 'overlap') - String for easier extensibility
     created_at TIMESTAMP DEFAULT NOW()
 );
 
@@ -68,7 +69,7 @@ CREATE INDEX idx_qc_results_frame_index ON qc_results(frame_index);
 CREATE INDEX idx_qc_results_status ON qc_results(qc_status);
 CREATE INDEX idx_qc_results_job_frame ON qc_results(job_id, frame_index);
 CREATE INDEX idx_qc_results_status_severity ON qc_results(qc_status, severity);
-CREATE INDEX idx_qc_results_rule_id ON qc_results(rule_id);
+CREATE INDEX idx_qc_results_rule_code ON qc_results(rule_code);
 ```
 
 #### 3. Issues Table
@@ -119,28 +120,6 @@ CREATE INDEX idx_labeler_metrics_labeler_id ON labeler_metrics(labeler_id);
 CREATE INDEX idx_labeler_metrics_project_id ON labeler_metrics(cvat_project_id);
 ```
 
-#### 5. QC Rules Table
-Stores QC rule definitions for referential integrity
-
-```sql
-CREATE TABLE qc_rules (
-    id SERIAL PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    code VARCHAR(100) UNIQUE NOT NULL,  -- e.g., 'bbox_min_area', 'overlap_detection'
-    description TEXT,
-    category VARCHAR(50) NOT NULL,  -- e.g., 'geometry', 'semantic', 'duplication'
-    config JSONB DEFAULT '{}',  -- Rule-specific configuration
-    is_active BOOLEAN DEFAULT true,
-    is_custom BOOLEAN DEFAULT false,  -- True for custom rules, False for default
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
-CREATE INDEX idx_qc_rules_code ON qc_rules(code);
-CREATE INDEX idx_qc_rules_category ON qc_rules(category);
-CREATE INDEX idx_qc_rules_is_active ON qc_rules(is_active);
-```
-
 ---
 
 ## 📦 SQLAlchemy Models
@@ -169,6 +148,7 @@ class Job(Base):
     id = Column(Integer, primary_key=True, index=True)
     cvat_job_id = Column(Integer, unique=True, nullable=False, index=True)
     cvat_project_id = Column(Integer, index=True)
+    cvat_task_id = Column(Integer, index=True)  -- CVAT task ID (if applicable)
     name = Column(String(255), nullable=False)
     status = Column(String(50), nullable=False, index=True)
     stage = Column(String(50), nullable=False, index=True)
@@ -203,7 +183,7 @@ class QCResult(Base):
     error_type = Column(String(100))
     error_details = Column(JSON)
     severity = Column(String(20), default="medium")
-    rule_id = Column(Integer, ForeignKey("qc_rules.id"))
+    rule_code = Column(String(100))  -- Rule code as string for easier extensibility
     created_at = Column(DateTime, default=datetime.utcnow)
     
     # Relationships
@@ -277,29 +257,6 @@ class LabelerMetrics(Base):
     __table_args__ = (
         UniqueConstraint('labeler_id', 'cvat_project_id', name='uq_labeler_project'),
     )
-
-
-### QC Rule Model
-
-```python
-# database/schemas/qc_rule.py
-from sqlalchemy import Column, Integer, String, Boolean, DateTime, JSON, Index
-from datetime import datetime
-from .base import Base
-
-class QCRule(Base):
-    __tablename__ = "qc_rules"
-    
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(255), nullable=False)
-    code = Column(String(100), unique=True, nullable=False, index=True)
-    description = Column(String, nullable=False)
-    category = Column(String(50), nullable=False, index=True)
-    config = Column(JSON, default={})
-    is_active = Column(Boolean, default=True)
-    is_custom = Column(Boolean, default=False)
-    created_at = Column(DateTime, default=datetime.utcnow)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
 ```
 
 ---
@@ -437,7 +394,7 @@ class DatabaseClient:
     def create_qc_result(self, job_id: int, frame_index: int, annotation_id: Optional[int],
                          qc_status: str, error_type: Optional[str] = None,
                          error_details: Optional[Dict] = None, severity: str = "medium",
-                         rule_id: Optional[int] = None) -> QCResult:
+                         rule_code: Optional[str] = None) -> QCResult:
         """Create a QC result record."""
         db = self.get_db_session()
         try:
@@ -449,7 +406,7 @@ class DatabaseClient:
                 error_type=error_type,
                 error_details=error_details,
                 severity=severity,
-                rule_id=rule_id
+                rule_code=rule_code
             )
             db.add(result)
             db.commit()

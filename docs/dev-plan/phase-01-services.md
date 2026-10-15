@@ -279,16 +279,6 @@ class IssueService:
         """
         issues, total_count = self.db_client.get_issues_by_job_with_count(job_id, status, limit, offset)
         return [IssueResponse.model_validate(issue) for issue in issues], total_count
-            status: Filter by issue status
-            limit: Maximum number of results
-            offset: Number of results to skip
-            
-        Returns:
-            List of IssueResponse objects
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        issues = self.db_client.get_issues_by_job(job_id, status, limit, offset)
-        return [IssueResponse.model_validate(issue) for issue in issues]
     
     def update_issue(self, issue_id: int, issue_data: IssueUpdate) -> Optional[IssueResponse]:
         """
@@ -300,9 +290,7 @@ class IssueService:
             
         Returns:
             Updated IssueResponse or None if not found
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        
+        """\n        
         # Update status if provided
         if issue_data.status:
             self.db_client.update_issue_status(issue_id, issue_data.status.value)
@@ -331,9 +319,7 @@ class IssueService:
             
         Returns:
             Number of issues
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        return self.db_client.count_issues(job_id, status)
+        """\n        return self.db_client.count_issues(job_id, status)
 ```
 
 ### 3. QC Service (Enhanced)
@@ -417,9 +403,7 @@ class QCService:
             
         Returns:
             Dictionary with QC results summary
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        
+        """\n        
         # Get or create job
         job = self.fetch_job_data(cvat_job_id)
         if not job:
@@ -658,9 +642,7 @@ class QCService:
         # Run QC first
         result = self.run_qc(cvat_job_id)
         
-        if result.get('status') == 'success' and result.get('total_errors', 0) > 0:
-            self.db_client.SessionLocal = lambda: self.db
-            
+        if result.get('status') == 'success' and result.get('total_errors', 0) > 0:\n            
             # Get job
             job = self.db_client.get_job_by_cvat_id(cvat_job_id)
             if not job:
@@ -721,9 +703,7 @@ class QCService:
         """
         result = self.run_qc(cvat_job_id)
         
-        if result.get('status') == 'success' and result.get('total_errors', 0) == 0:
-            self.db_client.SessionLocal = lambda: self.db
-            job = self.db_client.get_job_by_cvat_id(cvat_job_id)
+        if result.get('status') == 'success' and result.get('total_errors', 0) == 0:\n            job = self.db_client.get_job_by_cvat_id(cvat_job_id)
             if job:
                 self.db_client.update_job_status(job.id, 'completed', job.stage)
                 return {"status": "success", "job_id": job.id, "message": "QC passed"}
@@ -758,9 +738,7 @@ class ReportService:
         
         Returns:
             MetricsResponse with all metrics
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        stats = self.db_client.get_job_statistics()
+        """\n        stats = self.db_client.get_job_statistics()
         top_labelers = self.get_labeler_metrics(limit=10)
         daily_trends = self.get_daily_trends(days=30)
         
@@ -783,9 +761,7 @@ class ReportService:
             
         Returns:
             List of DailyTrend objects
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        trends = self.db_client.get_daily_trends(days)
+        """\n        trends = self.db_client.get_daily_trends(days)
         return [DailyTrend(**t) for t in trends]
     
     def get_labeler_metrics(self, job_id: Optional[int] = None, limit: int = 50) -> List[LabelerPerformance]:
@@ -798,9 +774,7 @@ class ReportService:
             
         Returns:
             List of LabelerPerformance objects
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        metrics = self.db_client.get_labeler_metrics(job_id, limit)
+        """\n        metrics = self.db_client.get_labeler_metrics(job_id, limit)
         
         return [
             LabelerPerformance(
@@ -824,9 +798,7 @@ class ReportService:
             
         Returns:
             ReportResponse or None if job not found
-        """
-        self.db_client.SessionLocal = lambda: self.db
-        
+        """\n        
         job = self.db_client.get_job_by_id(job_id)
         if not job:
             return None
@@ -1016,3 +988,4 @@ Phase 1 Service Layer is **complete** when:
 - [Phase 1 - API Layer](./phase-01-api.md)
 - [Phase 1 - Docker Setup](./phase-01-docker.md)
 - [Main Development Plan](../README.md)
+

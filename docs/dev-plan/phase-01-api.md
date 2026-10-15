@@ -187,7 +187,7 @@ class QCSummary(BaseModel):
 ```python
 # src/models/issue.py
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
+from typing import Optional, List
 from datetime import datetime
 from .enums import Severity, IssueStatus
 
@@ -197,7 +197,7 @@ class IssueBase(BaseModel):
     cvat_issue_id: Optional[int] = Field(None, description="CVAT issue ID", ge=1)
     job_id: int = Field(..., description="Job ID", ge=1)
     frame_index: int = Field(..., description="Frame index", ge=0)
-    position: Dict[str, Any] = Field(..., description="Position {x, y, width, height}")
+    position: List[float] = Field(..., description="[x1, y1, x2, y2]", min_length=4, max_length=4)
     message: str = Field(..., description="Issue message", min_length=1, max_length=1000)
     assignee_id: Optional[int] = Field(None, description="CVAT user ID", ge=1)
     severity: Severity = Field(default=Severity.MEDIUM, description="Issue severity")
@@ -507,6 +507,44 @@ async def update_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
     return job
+
+
+@router.post("/{job_id}/run-qc", response_model=dict, status_code=status.HTTP_202_ACCEPTED)
+async def run_qc(
+    job_id: int,
+    background_tasks: BackgroundTasks,
+    db: Session = Depends(get_db)
+):
+    """
+    Manually trigger QC processing for a job.
+    
+    **Path Parameters:**
+    - `job_id`: Internal job ID
+    
+    **Returns:**
+    Confirmation that QC processing has been triggered
+    
+    **Status Codes:**
+    - 202: QC processing started in background
+    - 404: Job not found
+    """
+    job_service = JobService(db)
+    job = job_service.get_job_by_id(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Trigger QC processing in background
+    background_tasks.add_task(
+        job_service.run_qc_processing,
+        job_id=job_id
+    )
+    
+    return {
+        "status": "qc_started",
+        "job_id": job_id,
+        "cvat_job_id": job.cvat_job_id,
+        "message": "QC processing triggered in background"
+    }
 ```
 
 ### QC Results Router
@@ -778,13 +816,12 @@ async def get_job_report(job_id: int, db: Session = Depends(get_db)):
 
 ```python
 # src/app/api/v1/routers/webhook.py
-from fastapi import APIRouter, Depends, HTTPException, Header, Request, status
+from fastapi import APIRouter, Depends, HTTPException, Header, Request, status, BackgroundTasks
 from fastapi.responses import JSONResponse
 from typing import Optional
 from sqlalchemy.orm import Session
 import logging
 
-from src.models.webhook import WebhookResponse
 from src.handlers.webhook_handlers import handle_cvat_webhook
 from src.app.dependencies import get_db
 
@@ -793,14 +830,15 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/webhook", tags=["webhook"])
 
 
-@router.post("/cvat", response_model=WebhookResponse, status_code=status.HTTP_202_ACCEPTED)
+@router.post("/cvat", status_code=status.HTTP_202_ACCEPTED)
 async def cvat_webhook(
     request: Request,
+    background_tasks: BackgroundTasks,
     x_webhook_secret: Optional[str] = Header(None, alias="X-Webhook-Secret"),
     db: Session = Depends(get_db)
 ):
     """
-    Receive CVAT webhook events and trigger QC processing.
+    Receive CVAT webhook events and trigger QC processing in background.
     
     This is the primary entry point for the entire QC workflow.
     
@@ -826,11 +864,10 @@ async def cvat_webhook(
     ```
     
     **Returns:**
-    Webhook response with processing status
+    JSON response confirming webhook was received and is processing in background
     
     **Status Codes:**
-    - 202: Webhook accepted, QC processing started
-    - 200: Webhook received but skipped (not validation status)
+    - 202: Webhook accepted, QC processing started in background
     - 401: Invalid webhook secret
     - 400: Invalid payload
     """
@@ -855,16 +892,11 @@ async def cvat_webhook(
             detail="Invalid JSON payload"
         )
     
-    # Process webhook
-    try:
-        result = handle_cvat_webhook(payload, db)
-        return WebhookResponse(**result)
-    except Exception as e:
-        logger.error(f"Webhook processing failed: {e}")
-        return JSONResponse(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            content={"status": "error", "message": str(e)}
-        )
+    # Process webhook in background to avoid blocking the webhook response
+    background_tasks.add_task(handle_cvat_webhook, payload, db)
+    
+    # Return immediately - processing happens in background
+    return {"status": "processing_in_background", "message": "Webhook received, QC processing started"}
 ```
 
 ---
